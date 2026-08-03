@@ -4,6 +4,9 @@ extern "C" {
 }
 
 #include "util.h"
+#include <algorithm>
+#include <cctype>
+#include <fstream>
 #include <limits>
 #include <map>
 #include <string.h>
@@ -45,17 +48,46 @@ bool is_software_hevc(const std::string &name) {
   return true;
 }
 
+bool is_qcom_iris_driver() {
+  const char *driver_path = "/sys/class/video4linux/video1/name";
+  std::ifstream file(driver_path);
+  if (!file.is_open()) return false;
+
+  std::string value;
+  std::getline(file, value, '\0');
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return value.find("qcom-iris") != std::string::npos ||
+         value.find("iris-encoder") != std::string::npos ||
+         value.find("iris") != std::string::npos;
+}
+
 } // anonymous namespace
 
 namespace util_encode {
+
+bool is_qcom_iris_platform() {
+  return is_qcom_iris_driver();
+}
+
+bool supports_forced_keyframe(const std::string &name) {
+  if (name.find("v4l2m2m") != std::string::npos && is_qcom_iris_platform()) {
+    return false;
+  }
+  return true;
+}
 
 void set_av_codec_ctx(AVCodecContext *c, const std::string &name, int kbs,
                       int gop, int fps, int thread_count) {
   c->has_b_frames = 0;
   c->max_b_frames = 0;
-  if (gop > 0 && gop < std::numeric_limits<int16_t>::max()) {
-    c->gop_size = gop;
-    c->keyint_min = gop; // Match keyint_min to gop for consistent keyframe interval
+  const bool qcom_iris_v4l2 =
+      name.find("v4l2m2m") != std::string::npos && is_qcom_iris_platform();
+  const int effective_gop = qcom_iris_v4l2 ? std::max(5, fps / 3) : gop;
+  if (effective_gop > 0 && effective_gop < std::numeric_limits<int16_t>::max()) {
+    c->gop_size = effective_gop;
+    c->keyint_min = effective_gop; // Match keyint_min to gop for consistent keyframe interval
   } else if (name.find("vaapi") != std::string::npos) {
     c->gop_size = fps > 0 ? fps : 30; // Default to 1 second keyframe interval
     c->keyint_min = c->gop_size;
@@ -153,7 +185,8 @@ bool set_lantency_free(void *priv_data, const std::string &name) {
                 av_err2str(ret));
       // Not fatal
     }
-    if ((ret = av_opt_set_int(priv_data, "num_capture_buffers", 4, 0)) < 0) {
+    const int capture_buffers = is_qcom_iris_driver() ? 12 : 8;
+    if ((ret = av_opt_set_int(priv_data, "num_capture_buffers", capture_buffers, 0)) < 0) {
       LOG_DEBUG(std::string("v4l2m2m num_capture_buffers option is unavailable, ret = ") +
                 av_err2str(ret));
       // Not fatal

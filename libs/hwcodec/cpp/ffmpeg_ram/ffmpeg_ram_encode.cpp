@@ -379,12 +379,12 @@ private:
     frame->pts = ms;
 
     // Force keyframe if requested
-    if (force_keyframe_) {
+    if (force_keyframe_ && util_encode::supports_forced_keyframe(name_)) {
       frame->pict_type = AV_PICTURE_TYPE_I;
-      force_keyframe_ = false;
     } else {
       frame->pict_type = AV_PICTURE_TYPE_NONE;
     }
+    force_keyframe_ = false;
 
     ret = avcodec_send_frame(c_, frame);
     if (ret == AVERROR(EAGAIN)) {
