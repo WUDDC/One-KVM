@@ -592,6 +592,16 @@ impl Encoder {
                 Some(Encoder::packet_callback),
             );
             if result == -11 || result == 0 {
+                if self.ctx.name.contains("v4l2m2m") {
+                    return Ok(frames
+                        .into_iter()
+                        .map(|frame| EncodeBytesFrame {
+                            data: Bytes::copy_from_slice(frame.data.as_ref()),
+                            pts: frame.pts,
+                            key: frame.key,
+                        })
+                        .collect());
+                }
                 return Ok(frames);
             }
             Err(result)
