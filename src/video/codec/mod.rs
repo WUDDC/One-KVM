@@ -8,6 +8,7 @@ pub mod convert;
 pub mod h264;
 pub mod h264_bitstream;
 pub mod h265;
+pub mod h265_bitstream;
 pub mod jpeg;
 pub mod registry;
 pub mod self_check;

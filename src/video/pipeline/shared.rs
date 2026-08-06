@@ -48,9 +48,9 @@ use crate::video::capture::status::{
     signal_status_from_capture_kind, CaptureIoErrorKind,
 };
 use crate::video::capture::{BridgeContext, CaptureReadError, CaptureStream};
-use crate::video::codec::h264_bitstream;
 use crate::video::codec::registry::{EncoderBackend, VideoEncoderType};
 use crate::video::codec::MjpegToNv12Decoder;
+use crate::video::codec::{h264_bitstream, h265_bitstream};
 use crate::video::device::parse_bridge_kind;
 use crate::video::device::VideoControlMode;
 use crate::video::format::{PixelFormat, Resolution};
@@ -276,6 +276,15 @@ pub struct SharedVideoPipelineStats {
     pub current_fps: f32,
 }
 
+#[derive(Default)]
+struct CachedH26xParameterSets {
+    h264_sps: Option<Vec<u8>>,
+    h264_pps: Option<Vec<u8>>,
+    h265_vps: Option<Vec<u8>>,
+    h265_sps: Option<Vec<u8>>,
+    h265_pps: Option<Vec<u8>>,
+}
+
 /// Universal shared video pipeline
 pub struct SharedVideoPipeline {
     config: RwLock<SharedVideoPipelineConfig>,
@@ -296,6 +305,7 @@ pub struct SharedVideoPipeline {
     sequence: AtomicU64,
     /// Atomic flag for keyframe request (avoids lock contention)
     keyframe_requested: AtomicBool,
+    parameter_sets: ParkingMutex<CachedH26xParameterSets>,
     /// Pipeline start time for monotonic PTS calculation (microseconds from process start).
     /// Uses AtomicI64 instead of Mutex for lock-free access.
     pipeline_start_time_us: AtomicI64,
@@ -335,6 +345,7 @@ impl SharedVideoPipeline {
             running_flag: AtomicBool::new(false),
             sequence: AtomicU64::new(0),
             keyframe_requested: AtomicBool::new(false),
+            parameter_sets: ParkingMutex::new(CachedH26xParameterSets::default()),
             pipeline_start_time_us: AtomicI64::new(0),
             pending_sync_geometry: ParkingMutex::new(None),
             device_lost_reason: ParkingMutex::new(None),
@@ -505,6 +516,86 @@ impl SharedVideoPipeline {
             return;
         }
         let _ = self.h264_profile_level_id.send(Some(profile_level_id));
+    }
+
+    fn inspect_and_parameterize_packet(
+        &self,
+        codec: VideoEncoderType,
+        data: Bytes,
+        ffmpeg_keyframe: bool,
+    ) -> (Bytes, bool) {
+        match codec {
+            VideoEncoderType::H264 => {
+                let (sps, pps) = h264_bitstream::extract_sps_pps(data.as_ref());
+                let is_keyframe = ffmpeg_keyframe || h264_bitstream::is_keyframe(data.as_ref());
+                let mut cache = self.parameter_sets.lock();
+                if let Some(sps) = sps.as_ref() {
+                    cache.h264_sps = Some(sps.clone());
+                }
+                if let Some(pps) = pps.as_ref() {
+                    cache.h264_pps = Some(pps.clone());
+                }
+
+                if !is_keyframe || (sps.is_some() && pps.is_some()) {
+                    return (data, is_keyframe);
+                }
+
+                match (&cache.h264_sps, &cache.h264_pps) {
+                    (Some(cached_sps), Some(cached_pps)) => {
+                        let mut output = Vec::with_capacity(
+                            data.len() + cached_sps.len() + cached_pps.len() + 8,
+                        );
+                        output.extend_from_slice(&[0, 0, 0, 1]);
+                        output.extend_from_slice(cached_sps);
+                        output.extend_from_slice(&[0, 0, 0, 1]);
+                        output.extend_from_slice(cached_pps);
+                        output.extend_from_slice(data.as_ref());
+                        debug!("[Pipeline] Prepended cached SPS/PPS to H264 IDR");
+                        (Bytes::from(output), true)
+                    }
+                    _ => (data, true),
+                }
+            }
+            VideoEncoderType::H265 => {
+                let (vps, sps, pps) = h265_bitstream::extract_vps_sps_pps(data.as_ref());
+                let is_keyframe = ffmpeg_keyframe || h265_bitstream::is_keyframe(data.as_ref());
+                let mut cache = self.parameter_sets.lock();
+                if let Some(vps) = vps.as_ref() {
+                    cache.h265_vps = Some(vps.clone());
+                }
+                if let Some(sps) = sps.as_ref() {
+                    cache.h265_sps = Some(sps.clone());
+                }
+                if let Some(pps) = pps.as_ref() {
+                    cache.h265_pps = Some(pps.clone());
+                }
+
+                if !is_keyframe || (vps.is_some() && sps.is_some() && pps.is_some()) {
+                    return (data, is_keyframe);
+                }
+
+                match (&cache.h265_vps, &cache.h265_sps, &cache.h265_pps) {
+                    (Some(cached_vps), Some(cached_sps), Some(cached_pps)) => {
+                        let mut output = Vec::with_capacity(
+                            data.len()
+                                + cached_vps.len()
+                                + cached_sps.len()
+                                + cached_pps.len()
+                                + 12,
+                        );
+                        for parameter_set in [cached_vps, cached_sps, cached_pps] {
+                            output.extend_from_slice(&[0, 0, 0, 1]);
+                            output.extend_from_slice(parameter_set);
+                        }
+                        output.extend_from_slice(data.as_ref());
+                        debug!("[Pipeline] Prepended cached VPS/SPS/PPS to H265 IRAP");
+                        (Bytes::from(output), true)
+                    }
+                    _ => (data, true),
+                }
+            }
+            _ => (data, ffmpeg_keyframe),
+        }
     }
 
     fn broadcast_encoded(&self, frame: Arc<EncodedVideoFrame>) {
@@ -1193,9 +1284,11 @@ impl SharedVideoPipeline {
             })?;
 
             if let Some((data, is_keyframe)) = packet {
+                let (data, is_keyframe) =
+                    self.inspect_and_parameterize_packet(codec, Bytes::from(data), is_keyframe);
                 let sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
                 return Ok(vec![EncodedVideoFrame {
-                    data: Bytes::from(data),
+                    data,
                     pts_ms,
                     is_keyframe,
                     sequence,
@@ -1275,14 +1368,15 @@ impl SharedVideoPipeline {
 
                 let mut encoded_frames = Vec::with_capacity(frames.len());
                 for encoded in frames {
-                    let is_keyframe = encoded.key == 1;
+                    let (data, is_keyframe) =
+                        self.inspect_and_parameterize_packet(codec, encoded.data, encoded.key == 1);
                     let sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
                     if codec == VideoEncoderType::H264 {
-                        self.update_h264_profile_level_id(&encoded.data);
+                        self.update_h264_profile_level_id(&data);
                     }
 
                     encoded_frames.push(EncodedVideoFrame {
-                        data: encoded.data,
+                        data,
                         pts_ms,
                         is_keyframe,
                         sequence,
