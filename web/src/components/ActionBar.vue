@@ -59,12 +59,11 @@ const isCh9329Backend = computed(() => hidBackend.value.includes('ch9329'))
 const showMsd = computed(() => {
   return !!systemStore.msd?.available && !isCh9329Backend.value
 })
-const showAtx = computed(() => systemStore.atx?.available === true)
-
 const props = defineProps<{
   mouseMode?: 'absolute' | 'relative'
   videoMode?: VideoMode
   ttydRunning?: boolean
+  showPower?: boolean
   showTerminal?: boolean
   showComputerUse?: boolean
   showPasteText?: boolean
@@ -72,6 +71,7 @@ const props = defineProps<{
   scaleMode?: VideoScaleMode
   sourceSizeAvailable?: boolean
 }>()
+const showAtx = computed(() => props.showPower !== false)
 const showStats = computed(() => (props.videoMode ?? 'mjpeg') !== 'mjpeg')
 const showPasteText = computed(() => props.showPasteText !== false)
 const showMic = computed(() => props.showMic === true)

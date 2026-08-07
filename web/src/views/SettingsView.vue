@@ -2799,6 +2799,20 @@ watch(isWindows, () => {
               </CardHeader>
               <CardContent class="space-y-1">
                 <div class="flex items-center justify-between gap-4 px-3 py-3">
+                  <Label for="feature-power" class="flex min-w-0 items-center gap-2 font-normal">
+                    <Power class="size-4 shrink-0 text-muted-foreground" />
+                    <span class="truncate">{{ t('actionbar.power') }}</span>
+                  </Label>
+                  <Switch id="feature-power" v-model="featureVisibility.power" />
+                </div>
+                <div class="flex items-center justify-between gap-4 px-3 py-3">
+                  <Label for="feature-paste-text" class="flex min-w-0 items-center gap-2 font-normal">
+                    <ClipboardPaste class="size-4 shrink-0 text-muted-foreground" />
+                    <span class="truncate">{{ t('settings.pasteText') }}</span>
+                  </Label>
+                  <Switch id="feature-paste-text" v-model="featureVisibility.pasteText" />
+                </div>
+                <div class="flex items-center justify-between gap-4 px-3 py-3">
                   <Label for="feature-web-terminal" class="flex min-w-0 items-center gap-2 font-normal">
                     <Terminal class="size-4 shrink-0 text-muted-foreground" />
                     <span class="truncate">{{ t('actionbar.webTerminal') }}</span>
@@ -2811,13 +2825,6 @@ watch(isWindows, () => {
                     <span class="truncate">{{ t('settings.computerUseAgent') }}</span>
                   </Label>
                   <Switch id="feature-computer-use" v-model="featureVisibility.computerUse" />
-                </div>
-                <div class="flex items-center justify-between gap-4 px-3 py-3">
-                  <Label for="feature-paste-text" class="flex min-w-0 items-center gap-2 font-normal">
-                    <ClipboardPaste class="size-4 shrink-0 text-muted-foreground" />
-                    <span class="truncate">{{ t('settings.pasteText') }}</span>
-                  </Label>
-                  <Switch id="feature-paste-text" v-model="featureVisibility.pasteText" />
                 </div>
               </CardContent>
             </Card>

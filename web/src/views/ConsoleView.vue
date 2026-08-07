@@ -237,6 +237,7 @@ const showTerminalDialog = ref(false)
 const featureVisibility = useFeatureVisibility()
 const { isDark, toggleTheme } = useTheme()
 const terminalAvailable = computed(() => ttydStatus.value?.available !== false)
+const showPower = computed(() => featureVisibility.value.power)
 const showTerminal = computed(() => terminalAvailable.value && featureVisibility.value.webTerminal)
 const showComputerUse = computed(() => featureVisibility.value.computerUse)
 const showPasteText = computed(() => featureVisibility.value.pasteText)
@@ -3273,6 +3274,7 @@ onUnmounted(() => {
       :mouse-mode="mouseMode"
       :video-mode="videoMode"
       :ttyd-running="ttydStatus?.running"
+      :show-power="showPower"
       :show-terminal="showTerminal"
       :show-computer-use="showComputerUse"
       :show-paste-text="showPasteText"
