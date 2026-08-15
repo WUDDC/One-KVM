@@ -643,10 +643,14 @@ pub fn has_parameter_sets(codec: AmlencCodec, data: &[u8]) -> bool {
 )]
 fn is_s912_gxm_compatible(compatible: &[u8]) -> bool {
     let compatible = String::from_utf8_lossy(compatible).to_ascii_lowercase();
+    // s912
     compatible.contains("amlogic,gxm")
         || compatible.contains("amlogic, gxm")
         || compatible.contains("amlogic,meson-gxm")
         || compatible.contains("amlogic,s912")
+        // s905d
+        || compatible.contains("amlogic,meson-gxl")
+        || compatible.contains("amlogic,s905d")
 }
 
 pub fn system_is_s912_gxm() -> Result<bool> {
