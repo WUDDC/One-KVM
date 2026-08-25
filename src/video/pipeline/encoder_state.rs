@@ -231,9 +231,9 @@ fn create_mjpeg_decoder(resolution: Resolution) -> Result<(MjpegDecoderKind, Pix
     Ok((libyuv_mjpeg_decoder(resolution), PixelFormat::Nv12))
 }
 
-/// AMLENC and libjpeg-turbo use independent CPU/hardware resources. Decode
-/// MJPEG in the capture worker so encoding the previous NV12 frame can overlap
-/// with decoding the next frame.
+/// Amlogic hardware encoders and libjpeg-turbo use independent CPU/hardware
+/// resources. Decode MJPEG in the capture worker so encoding the previous NV12
+/// frame can overlap with decoding the next frame.
 pub(super) fn should_parallel_decode_mjpeg(config: &SharedVideoPipelineConfig) -> bool {
     if !config.input_format.is_compressed()
         || !matches!(
@@ -248,7 +248,12 @@ pub(super) fn should_parallel_decode_mjpeg(config: &SharedVideoPipelineConfig) -
         Some(backend) => registry.encoder_with_backend(config.output_codec, backend),
         None => registry.best_available_encoder(config.output_codec),
     };
-    selected.is_some_and(|encoder| encoder.backend == EncoderBackend::Amlogic)
+    selected.is_some_and(|encoder| {
+        matches!(
+            encoder.backend,
+            EncoderBackend::Amlogic | EncoderBackend::V4l2m2m
+        )
+    })
 }
 
 pub(super) fn build_encoder_state(

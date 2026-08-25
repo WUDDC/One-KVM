@@ -636,7 +636,7 @@ impl SharedVideoPipeline {
         let mut encoder_config = config.clone();
         if parallel_mjpeg_decode {
             encoder_config.input_format = PixelFormat::Nv12;
-            info!("Using capture-thread libyuv MJPEG decode with parallel AMLENC encoding");
+            info!("Using capture-thread libyuv MJPEG decode with parallel hardware encoding");
         }
         let mut encoder_state = build_encoder_state(&encoder_config)?;
         let _ = self.running.send(true);
