@@ -8,7 +8,7 @@ use crate::audio::{AudioController, AudioControllerConfig, AudioQuality};
 use crate::auth::{SessionStore, TwoFactorService, UserStore};
 use crate::computer_use::ComputerUseManager;
 use crate::config::{self, AppConfig, ConfigStore};
-use crate::db::DatabasePool;
+use crate::db::{open_database_pool, DatabasePool};
 use crate::events::EventBus;
 use crate::extensions::ExtensionManager;
 use crate::hid::{HidBackendType, HidController};
@@ -126,8 +126,6 @@ impl RuntimeBuilder {
             }
         }
 
-        connect_capture_to_webrtc(&streamer, &webrtc).await;
-
         let stream_manager = VideoStreamManager::with_webrtc_streamer(
             streamer.clone(),
             webrtc.clone() as Arc<dyn crate::video::traits::VideoOutput>,
@@ -226,23 +224,19 @@ impl ApplicationRuntime {
 async fn load_runtime_config(
     data_dir: &Path,
 ) -> anyhow::Result<(DatabasePool, ConfigStore, AppConfig)> {
-    tokio::fs::create_dir_all(data_dir).await?;
-
-    let db_path = data_dir.join("one-kvm.db");
-    let db = DatabasePool::new(&db_path).await?;
-    db.init_schema().await?;
+    let db = open_database_pool(data_dir).await?;
 
     let config_store = ConfigStore::new(db.clone_pool())?;
     config_store.load().await?;
     let mut config = (*config_store.get()).clone();
     config.apply_platform_defaults();
-    prepare_linux_runtime_dirs(data_dir, &config_store, &mut config).await?;
+    normalize_msd_config(data_dir, &config_store, &mut config).await?;
 
     Ok((db, config_store, config))
 }
 
 #[cfg(unix)]
-async fn prepare_linux_runtime_dirs(
+async fn normalize_msd_config(
     data_dir: &Path,
     config_store: &ConfigStore,
     config: &mut AppConfig,
@@ -263,19 +257,11 @@ async fn prepare_linux_runtime_dirs(
     if msd_dir_updated {
         config_store.set(config.clone()).await?;
     }
-
-    let msd_dir = PathBuf::from(&config.msd.msd_dir);
-    if let Err(error) = tokio::fs::create_dir_all(msd_dir.join("images")).await {
-        tracing::warn!("Failed to create MSD images directory: {}", error);
-    }
-    if let Err(error) = tokio::fs::create_dir_all(msd_dir.join("ventoy")).await {
-        tracing::warn!("Failed to create MSD ventoy directory: {}", error);
-    }
     Ok(())
 }
 
 #[cfg(not(unix))]
-async fn prepare_linux_runtime_dirs(
+async fn normalize_msd_config(
     _data_dir: &Path,
     _config_store: &ConfigStore,
     _config: &mut AppConfig,
@@ -499,27 +485,6 @@ async fn build_audio(config: &AppConfig, events: &Arc<EventBus>) -> Arc<AudioCon
     controller
 }
 
-async fn connect_capture_to_webrtc(streamer: &Arc<Streamer>, webrtc: &Arc<WebRtcStreamer>) {
-    let (device_path, resolution, format, fps, jpeg_quality) =
-        streamer.current_capture_config().await;
-    tracing::debug!(
-        "Initial video config: {}x{} {:?} @ {}fps",
-        resolution.width,
-        resolution.height,
-        format,
-        fps
-    );
-    webrtc.update_video_config(resolution, format, fps).await;
-    if let Some(device_path) = device_path {
-        webrtc
-            .set_capture_device(device_path, jpeg_quality, streamer.current_device().await)
-            .await;
-        tracing::debug!("WebRTC streamer configured for direct capture");
-    } else {
-        tracing::warn!("No capture device configured for WebRTC");
-    }
-}
-
 async fn connect_audio_recovery(
     audio: &Arc<AudioController>,
     stream_manager: &Arc<VideoStreamManager>,
@@ -594,5 +559,26 @@ mod tests {
         assert_eq!(config.web.http_port, 9000);
         assert_eq!(config.web.https_port, original_https_port);
         assert!(config.web.https_enabled);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn normalizing_disabled_msd_does_not_create_module_directories() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let data_dir = temp_dir.path().join("data");
+        let msd_dir = temp_dir.path().join("disabled-msd");
+        let db = open_database_pool(&data_dir).await.unwrap();
+        let config_store = ConfigStore::new(db.clone_pool()).unwrap();
+        config_store.load().await.unwrap();
+        let mut config = (*config_store.get()).clone();
+        config.msd.enabled = false;
+        config.msd.msd_dir = msd_dir.to_string_lossy().into_owned();
+
+        normalize_msd_config(&data_dir, &config_store, &mut config)
+            .await
+            .unwrap();
+
+        assert!(!msd_dir.join("images").exists());
+        assert!(!msd_dir.join("ventoy").exists());
     }
 }

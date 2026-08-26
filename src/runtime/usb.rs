@@ -258,14 +258,6 @@ impl UsbCoordinator {
         let inquiry_changed = old_config.flash_inquiry_string != new_config.flash_inquiry_string
             || old_config.cdrom_inquiry_string != new_config.cdrom_inquiry_string;
 
-        let msd_dir = new_config.msd_dir_path();
-        if let Err(error) = std::fs::create_dir_all(msd_dir.join("images")) {
-            tracing::warn!("Failed to create MSD images directory: {}", error);
-        }
-        if let Err(error) = std::fs::create_dir_all(msd_dir.join("ventoy")) {
-            tracing::warn!("Failed to create MSD ventoy directory: {}", error);
-        }
-
         if !options.force && old_enabled == new_enabled && !directory_changed && !inquiry_changed {
             tracing::info!("MSD configuration unchanged, no reload needed");
             return Ok(());

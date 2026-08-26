@@ -62,12 +62,8 @@ impl MsdController {
             ),
         }
 
-        if let Err(e) = std::fs::create_dir_all(&self.images_path) {
-            warn!("Failed to create images directory: {}", e);
-        }
-        if let Err(e) = std::fs::create_dir_all(&self.ventoy_dir) {
-            warn!("Failed to create ventoy directory: {}", e);
-        }
+        tokio::fs::create_dir_all(&self.images_path).await?;
+        tokio::fs::create_dir_all(&self.ventoy_dir).await?;
 
         info!("Fetching MSD function from OtgService");
         let msd_func = self

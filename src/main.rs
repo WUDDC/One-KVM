@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::io::Write;
 use std::net::{IpAddr, SocketAddr};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -12,7 +12,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use one_kvm::auth::{SessionStore, TwoFactorService, UserStore};
 use one_kvm::config;
-use one_kvm::db::DatabasePool;
+use one_kvm::db::open_database_pool;
 use one_kvm::platform::PlatformCapabilities;
 use one_kvm::runtime::{RuntimeBuilder, WebConfigOverrides};
 use one_kvm::state::ShutdownAction;
@@ -298,13 +298,6 @@ async fn shutdown_signal() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn open_database_pool(data_dir: &Path) -> anyhow::Result<DatabasePool> {
-    let db_path = data_dir.join("one-kvm.db");
-    let db = DatabasePool::new(&db_path).await?;
-    db.init_schema().await?;
-    Ok(db)
-}
-
 async fn run_servers_until_shutdown<F, E>(
     mut servers: FuturesUnordered<F>,
     shutdown_signal: impl Future<Output = ShutdownAction>,
@@ -348,7 +341,6 @@ fn restart_current_process(exe_path: Option<PathBuf>) -> anyhow::Result<()> {
 }
 
 async fn run_cli_command(command: CliCommand, data_dir: PathBuf) -> anyhow::Result<()> {
-    tokio::fs::create_dir_all(&data_dir).await?;
     let db = open_database_pool(&data_dir).await?;
     let users = UserStore::new(db.clone_pool());
     let two_factor = TwoFactorService::new(db.clone_pool());
