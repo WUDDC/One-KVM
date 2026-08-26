@@ -1,11 +1,9 @@
-use std::sync::Arc;
-
 use crate::config::{AppConfig, Ch9329DescriptorConfig, HidBackend, HidConfig};
 use crate::error::{AppError, Result};
-use crate::state::AppState;
+use crate::web::state::UsbApiState;
 
-use super::apply::{apply_usb_config, try_apply_lock};
 use super::types::HidConfigUpdate;
+use crate::runtime::try_apply_lock;
 
 pub(super) fn stage_hid_config_update(
     staged_hid: &mut HidConfig,
@@ -27,14 +25,11 @@ pub(super) fn stage_hid_config_update(
     Ok(requested_descriptor)
 }
 
-pub(super) async fn update_usb_config<F>(
-    state: &Arc<AppState>,
-    stage_update: F,
-) -> Result<AppConfig>
+pub(super) async fn update_usb_config<F>(state: &UsbApiState, stage_update: F) -> Result<AppConfig>
 where
     F: FnOnce(&mut AppConfig) -> Result<Option<Ch9329DescriptorConfig>>,
 {
-    let _guard = try_apply_lock(&state.config_apply_locks.otg, "otg")?;
+    let _guard = try_apply_lock(&state.apply_lock, "otg")?;
 
     let old_config = state.config.get();
     let mut staged_config = old_config.as_ref().clone();
@@ -58,7 +53,11 @@ where
         staged_config.uac.validate()?;
     }
 
-    if let Err(error) = apply_usb_config(state, &old_config, &staged_config).await {
+    if let Err(error) = state
+        .coordinator
+        .apply_config(&old_config, &staged_config)
+        .await
+    {
         return Err(rollback_after_failure(state, &staged_config, &old_config, error, false).await);
     }
 
@@ -114,7 +113,7 @@ where
 }
 
 async fn rollback_after_failure(
-    state: &Arc<AppState>,
+    state: &UsbApiState,
     failed_config: &AppConfig,
     old_config: &AppConfig,
     primary_error: AppError,
@@ -122,7 +121,11 @@ async fn rollback_after_failure(
 ) -> AppError {
     let mut rollback_errors = Vec::new();
 
-    if let Err(error) = apply_usb_config(state, failed_config, old_config).await {
+    if let Err(error) = state
+        .coordinator
+        .apply_config(failed_config, old_config)
+        .await
+    {
         rollback_errors.push(format!("runtime rollback failed: {error}"));
     }
     if restore_descriptor && old_config.hid.backend == HidBackend::Ch9329 {
@@ -141,7 +144,7 @@ async fn rollback_after_failure(
 
     let message = format!("{primary_error}; {}", rollback_errors.join("; "));
     #[cfg(unix)]
-    state.otg_service.mark_degraded(message.clone()).await;
+    state.otg.mark_degraded(message.clone()).await;
     AppError::Config(message)
 }
 
