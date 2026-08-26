@@ -30,7 +30,6 @@ use super::encoder_state::{build_encoder_state, should_parallel_decode_mjpeg, En
 
 /// Grace period before auto-stopping pipeline when no subscribers (in seconds)
 const AUTO_STOP_GRACE_PERIOD_SECS: u64 = 3;
-const AMLENC_MAX_FPS: u32 = 60;
 /// After this many consecutive timeouts, log a prominent warning.
 const CAPTURE_TIMEOUT_RESTART_THRESHOLD: u32 = 5;
 const CAPTURE_TIMEOUT_SOFT_RESTART_THRESHOLD: u32 = 3;
@@ -56,9 +55,6 @@ use crate::video::device::parse_bridge_kind;
 use crate::video::device::VideoControlMode;
 use crate::video::format::{PixelFormat, Resolution};
 
-fn amlenc_supported_fps(requested_fps: u32) -> u32 {
-    requested_fps.min(AMLENC_MAX_FPS)
-}
 use crate::video::frame::{FrameBuffer, FrameBufferPool, VideoFrame};
 use crate::video::recovery::{wait_for_source_change, CaptureRecoveryPolicy};
 use crate::video::signal::SignalStatus;
@@ -287,9 +283,8 @@ pub struct SharedVideoPipeline {
     stats: Mutex<SharedVideoPipelineStats>,
     running: watch::Sender<bool>,
     running_rx: watch::Receiver<bool>,
-    /// Becomes true only after the synchronous encoder worker has dropped its
-    /// vendor handles.  Capture teardown alone is not sufficient for AMLENC:
-    /// a blocked dequeue/encode can otherwise overlap the next pipeline.
+    /// Becomes true only after the synchronous encoder worker has exited and
+    /// dropped its encoder handles.
     encoder_done: watch::Sender<bool>,
     encoder_done_rx: watch::Receiver<bool>,
     h264_profile_level_id: watch::Sender<Option<String>>,
@@ -554,17 +549,6 @@ impl SharedVideoPipeline {
 
         let mut config = self.config.read().await.clone();
         let parallel_mjpeg_decode = should_parallel_decode_mjpeg(&config);
-        if parallel_mjpeg_decode {
-            let stable_fps = amlenc_supported_fps(config.fps);
-            if stable_fps != config.fps {
-                warn!(
-                    "Limiting S912 AMLENC capture at {}x{} from {} to {} fps (hardware limit)",
-                    config.resolution.width, config.resolution.height, config.fps, stable_fps
-                );
-                config.fps = stable_fps;
-                *self.config.write().await = config.clone();
-            }
-        }
         {
             let mut last = self.last_state_notification.lock();
             *last = None;
@@ -596,9 +580,6 @@ impl SharedVideoPipeline {
                 }
                 config.resolution = negotiated_res;
                 config.input_format = negotiated_fmt;
-                if parallel_mjpeg_decode {
-                    config.fps = amlenc_supported_fps(config.fps);
-                }
                 if previous != (config.resolution, config.input_format, config.fps) {
                     info!(
                             "Negotiated capture {}x{} {:?} @ {} fps (configured {}x{} {:?} @ {} fps) — aligning encoder to source",
@@ -741,8 +722,7 @@ impl SharedVideoPipeline {
                 }
 
                 pipeline.clear_cmd_tx();
-                // Dropping encoder_state here releases AMLENC before a caller
-                // is allowed to construct a replacement pipeline.
+                // Release encoder resources before allowing a replacement pipeline.
                 drop(encoder_state);
                 let _ = pipeline.encoder_done.send(true);
             });
@@ -1604,11 +1584,6 @@ mod tests {
 
         let h265 = SharedVideoPipelineConfig::h265(Resolution::HD720, BitratePreset::Speed);
         assert_eq!(h265.output_codec, VideoEncoderType::H265);
-
-        assert_eq!(amlenc_supported_fps(30), 30);
-        assert_eq!(amlenc_supported_fps(50), 50);
-        assert_eq!(amlenc_supported_fps(60), 60);
-        assert_eq!(amlenc_supported_fps(120), 60);
     }
 
     #[test]
