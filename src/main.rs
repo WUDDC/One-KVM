@@ -24,7 +24,6 @@ enum LogLevel {
     Warn,
     #[default]
     Info,
-    Verbose,
     Debug,
     Trace,
 }
@@ -70,13 +69,9 @@ struct CliArgs {
     #[arg(short = 'd', long, value_name = "DIR")]
     data_dir: Option<PathBuf>,
 
-    /// Log level (error, warn, info, verbose, debug, trace)
+    /// Log level (error, warn, info, debug, trace)
     #[arg(short = 'l', long, value_name = "LEVEL", default_value = "info")]
     log_level: LogLevel,
-
-    /// Increase verbosity (-v for verbose, -vv for debug, -vvv for trace)
-    #[arg(short = 'v', long, action = clap::ArgAction::Count)]
-    verbose: u8,
 }
 
 #[derive(Subcommand, Debug)]
@@ -103,7 +98,7 @@ enum UserAction {
 async fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
 
-    init_logging(args.log_level, args.verbose);
+    init_logging(args.log_level);
 
     CryptoProvider::install_default(ring::default_provider())
         .expect("Failed to install rustls crypto provider");
@@ -244,25 +239,16 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn init_logging(level: LogLevel, verbose_count: u8) {
-    let effective_level = match verbose_count {
-        0 => level,
-        1 => LogLevel::Verbose,
-        2 => LogLevel::Debug,
-        _ => LogLevel::Trace,
+fn init_logging(level: LogLevel) {
+    let app_level = match level {
+        LogLevel::Error => "error",
+        LogLevel::Warn => "warn",
+        LogLevel::Info => "info",
+        LogLevel::Debug => "debug",
+        LogLevel::Trace => "trace",
     };
-
-    let filter = match effective_level {
-        LogLevel::Error => "one_kvm=error,tower_http=error,webrtc_sctp=warn",
-        LogLevel::Warn => "one_kvm=warn,tower_http=warn,webrtc_sctp=warn",
-        LogLevel::Info => "one_kvm=info,tower_http=info,webrtc_sctp=warn",
-        LogLevel::Verbose => "one_kvm=debug,tower_http=info,webrtc_sctp=warn",
-        LogLevel::Debug => "one_kvm=debug,tower_http=debug,webrtc_sctp=warn",
-        LogLevel::Trace => "one_kvm=trace,tower_http=debug,webrtc_sctp=warn",
-    };
-
     let env_filter =
-        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into());
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| app_level.into());
 
     if let Err(err) = tracing_subscriber::registry()
         .with(env_filter)
