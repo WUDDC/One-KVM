@@ -85,6 +85,23 @@ pub struct TtydDeviceInfo {
     pub running: bool,
 }
 
+/// IR learn/transmit progress: `waiting` → `captured` → `saved`, or
+/// `failed` / `cancelled` / `sent`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IrLearnEvent {
+    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub button_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proto: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scancode: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientStats {
     pub id: String,
@@ -219,6 +236,21 @@ pub enum SystemEvent {
         ttyd: TtydDeviceInfo,
     },
 
+    #[serde(rename = "ir.learn")]
+    IrLearn {
+        state: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        remote_id: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        button_id: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        proto: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        scancode: Option<u64>,
+    },
+
     #[serde(rename = "error")]
     Error { message: String },
 }
@@ -240,6 +272,7 @@ pub(crate) const EXACT_EVENT_TOPICS: &[&str] = &[
     "webrtc.ice_complete",
     "msd.upload_progress",
     "msd.download_progress",
+    "ir.learn",
     "system.device_info",
     "error",
 ];
@@ -262,6 +295,7 @@ impl SystemEvent {
             Self::WebRTCIceComplete { .. } => "webrtc.ice_complete",
             Self::MsdUploadProgress { .. } => "msd.upload_progress",
             Self::MsdDownloadProgress { .. } => "msd.download_progress",
+            Self::IrLearn { .. } => "ir.learn",
             Self::DeviceInfo { .. } => "system.device_info",
             Self::Error { .. } => "error",
         }
@@ -378,6 +412,14 @@ mod tests {
                 progress_pct: None,
                 status: String::new(),
                 error_code: None,
+            },
+            SystemEvent::IrLearn {
+                state: String::new(),
+                message: None,
+                remote_id: None,
+                button_id: None,
+                proto: None,
+                scancode: None,
             },
             SystemEvent::DeviceInfo {
                 video: VideoDeviceInfo {

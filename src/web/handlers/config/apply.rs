@@ -136,6 +136,13 @@ pub async fn apply_atx_config(
     Ok(())
 }
 
+#[cfg(all(target_os = "linux", feature = "desktop"))]
+pub async fn apply_ir_config(state: &Arc<AppState>, new_config: &crate::config::IrConfig) -> Result<()> {
+    tracing::info!("Applying IR config changes...");
+    state.ir.apply_config(new_config);
+    Ok(())
+}
+
 pub async fn apply_audio_config(
     state: &Arc<AppState>,
     _old_config: &AudioConfig,

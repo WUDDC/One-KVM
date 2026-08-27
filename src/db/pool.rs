@@ -33,6 +33,8 @@ impl DatabasePool {
         self.create_user_totp_credentials_table().await?;
         self.create_api_tokens_table().await?;
         self.create_wol_history_table().await?;
+        #[cfg(all(target_os = "linux", feature = "desktop"))]
+        crate::ir::store::ensure_schema(&self.pool).await?;
         Ok(())
     }
 

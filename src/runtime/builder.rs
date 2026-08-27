@@ -112,6 +112,12 @@ impl RuntimeBuilder {
         #[cfg(unix)]
         let msd = build_msd(&config, &data_dir, &otg_service, &events).await;
         let atx = build_atx(&config).await;
+        #[cfg(all(target_os = "linux", feature = "desktop"))]
+        let ir = Arc::new(crate::ir::IrManager::new(
+            config.ir.clone(),
+            db.clone(),
+            events.clone(),
+        ));
         let audio = build_audio(&config, &events).await;
         let extensions = Arc::new(ExtensionManager::new());
         tracing::info!("Extension manager initialized");
@@ -164,6 +170,8 @@ impl RuntimeBuilder {
             #[cfg(unix)]
             msd,
             atx,
+            #[cfg(all(target_os = "linux", feature = "desktop"))]
+            ir,
             audio,
             extensions.clone(),
             events.clone(),

@@ -8,6 +8,7 @@ mod atx;
 mod common;
 mod computer_use;
 mod hid;
+mod ir;
 mod otg_network;
 mod stream;
 mod uac;
@@ -18,6 +19,7 @@ pub use atx::*;
 pub use common::*;
 pub use computer_use::*;
 pub use hid::*;
+pub use ir::*;
 pub use otg_network::*;
 pub use stream::*;
 pub use uac::*;
@@ -36,6 +38,7 @@ pub struct AppConfig {
     pub otg_network: OtgNetworkConfig,
     pub msd: MsdConfig,
     pub atx: AtxConfig,
+    pub ir: IrConfig,
     pub audio: AudioConfig,
     pub stream: StreamConfig,
     pub web: WebConfig,
@@ -57,6 +60,7 @@ impl AppConfig {
             self.uac.enabled = false;
         }
         self.atx.normalize();
+        self.ir.normalize();
     }
 
     pub fn apply_platform_defaults(&mut self) {

@@ -10,6 +10,8 @@ mod auth;
 mod computer_use;
 mod hid_api;
 mod inventory;
+#[cfg(all(target_os = "linux", feature = "desktop"))]
+mod ir_api;
 #[cfg(unix)]
 mod msd_api;
 mod setup;
@@ -25,6 +27,8 @@ pub use auth::*;
 pub use computer_use::*;
 pub use hid_api::*;
 pub use inventory::*;
+#[cfg(all(target_os = "linux", feature = "desktop"))]
+pub use ir_api::*;
 #[cfg(unix)]
 pub use msd_api::*;
 pub use setup::*;

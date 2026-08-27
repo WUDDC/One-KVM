@@ -5,6 +5,8 @@ mod atx;
 mod audio;
 mod auth;
 mod hid;
+#[cfg(all(target_os = "linux", feature = "desktop"))]
+mod ir;
 #[cfg(unix)]
 mod msd;
 #[cfg(unix)]
@@ -27,6 +29,8 @@ pub use atx::{get_atx_config, update_atx_config};
 pub use audio::{get_audio_config, update_audio_config};
 pub use auth::{get_auth_config, update_auth_config};
 pub use hid::{get_hid_config, update_hid_config};
+#[cfg(all(target_os = "linux", feature = "desktop"))]
+pub use ir::{get_ir_config, update_ir_config};
 #[cfg(unix)]
 pub use msd::{get_msd_config, update_msd_config};
 #[cfg(unix)]

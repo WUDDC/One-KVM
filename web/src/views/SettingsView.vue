@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
@@ -10,6 +10,7 @@ import { useAuthStore } from '@/stores/auth'
 import {
   authApi,
   configApi,
+  irApi,
   otgNetworkApi,
   uacApi,
   hidApi,
@@ -39,6 +40,9 @@ import {
   type UpdateChannel,
   type VideoEncoderSelfCheckResponse,
   type DeviceList,
+  type IrRemote,
+  type IrHardwareStatus,
+  type IrLearnEvent,
 } from '@/api'
 import type {
   ExtensionsStatus,
@@ -59,6 +63,7 @@ import { toConfigFps } from '@/lib/fps'
 import { useClipboard } from '@/composables/useClipboard'
 import { useFeatureVisibility } from '@/composables/useFeatureVisibility'
 import { useTheme } from '@/composables/useTheme'
+import { useWebSocket } from '@/composables/useWebSocket'
 import { useVideoDeviceConfiguration } from '@/composables/useVideoDeviceConfiguration'
 import { getVideoFormatState } from '@/lib/video-format-support'
 import { formatVideoDeviceLabel } from '@/lib/video-device-label'
@@ -143,6 +148,11 @@ import {
   Bot,
   ClipboardPaste,
   Wrench,
+  Radio,
+  Upload,
+  Download,
+  Pencil,
+  Circle,
 } from 'lucide-vue-next'
 
 const { t, te } = useI18n()
@@ -168,6 +178,7 @@ const SETTINGS_SECTION_IDS = [
   'video',
   'hid',
   'atx',
+  'ir',
   'environment',
   'other',
   'ext-ttyd',
@@ -201,6 +212,7 @@ const navGroups = computed(() => [
   {
     title: t('settings.extensions'),
     items: [
+      { id: 'ir', label: t('settings.ir'), icon: Radio },
       { id: 'ext-ttyd', label: t('extensions.ttyd.title'), icon: Terminal },
       { id: 'third-party-access', label: t('extensions.thirdPartyAccess.title'), icon: ScreenShare },
       { id: 'ext-remote-access', label: t('extensions.remoteAccess.title'), icon: ExternalLink },
@@ -285,6 +297,13 @@ async function loadSectionData(section: SettingsSectionId) {
         loadConfig(),
         loadAtxConfig(),
         loadAtxDevices(),
+      ])
+      return
+    case 'ir':
+      connectWs()
+      await Promise.all([
+        loadIrConfig(),
+        loadIrRemotes(),
       ])
       return
     case 'environment':
@@ -1775,6 +1794,303 @@ function removeEasytierPeer(index: number) {
     extConfig.value.easytier.peer_urls.splice(index, 1)
   }
 }
+
+// ---------------------------- IR Remote ----------------------------
+
+interface IrFormState {
+  enabled: boolean
+  rx_device: string
+  tx_mode: string
+  tx_gpio_chip: string
+  tx_gpio_line: number
+  carrier: number
+  learn_timeout_ms: number
+  led_enabled: boolean
+  led_brightness: number
+}
+
+const irForm = ref<IrFormState>({
+  enabled: true,
+  rx_device: 'auto',
+  tx_mode: 'auto',
+  tx_gpio_chip: '/dev/gpiochip0',
+  tx_gpio_line: 23,
+  carrier: 38000,
+  learn_timeout_ms: 10000,
+  led_enabled: true,
+  led_brightness: 40,
+})
+const irSaving = ref(false)
+const irSaved = ref(false)
+
+const irRemotesList = ref<IrRemote[]>([])
+const irHardware = ref<IrHardwareStatus | null>(null)
+
+const IR_NEW_REMOTE = '__new__'
+const irLearnRemoteChoice = ref<string>(IR_NEW_REMOTE)
+const irNewRemoteName = ref('')
+const irLearnButtonName = ref('')
+const irLearnState = ref<'idle' | 'waiting' | 'saved' | 'failed' | 'cancelled'>('idle')
+const irLearnError = ref('')
+const irLearnDetail = ref('')
+const irStartingLearn = ref(false)
+
+const irRenamingRemote = ref<number | null>(null)
+const irRemoteRenameValue = ref('')
+const irRenamingButton = ref<number | null>(null)
+const irButtonRenameValue = ref('')
+
+const irImporting = ref(false)
+const irFileInput = ref<HTMLInputElement | null>(null)
+
+let irLearnGuardTimer: number | null = null
+
+async function loadIrConfig() {
+  try {
+    const config = await configStore.refreshIr()
+    if (config) {
+      irForm.value = {
+        enabled: config.enabled,
+        rx_device: config.rx_device || 'auto',
+        tx_mode: config.tx_mode || 'auto',
+        tx_gpio_chip: config.tx_gpio_chip || '/dev/gpiochip0',
+        tx_gpio_line: config.tx_gpio_line,
+        carrier: config.carrier,
+        learn_timeout_ms: config.learn_timeout_ms,
+        led_enabled: config.led_enabled,
+        led_brightness: config.led_brightness,
+      }
+    }
+  } catch {}
+  try {
+    irHardware.value = await irApi.hardware()
+  } catch {}
+}
+
+async function loadIrRemotes() {
+  try {
+    irRemotesList.value = (await irApi.listRemotes()).remotes
+  } catch {}
+}
+
+async function saveIrSettings() {
+  irSaving.value = true
+  irSaved.value = false
+  try {
+    await configStore.updateIr({
+      enabled: irForm.value.enabled,
+      rx_device: irForm.value.rx_device || 'auto',
+      tx_mode: irForm.value.tx_mode,
+      tx_gpio_chip: irForm.value.tx_gpio_chip,
+      tx_gpio_line: irForm.value.tx_gpio_line,
+      carrier: irForm.value.carrier,
+      learn_timeout_ms: irForm.value.learn_timeout_ms,
+      led_enabled: irForm.value.led_enabled,
+      led_brightness: irForm.value.led_brightness,
+    })
+    irSaved.value = true
+    setTimeout(() => (irSaved.value = false), 2000)
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : String(error))
+  } finally {
+    irSaving.value = false
+  }
+  void loadIrConfig()
+}
+
+async function ensureLearnRemoteId(): Promise<number | null> {
+  if (irLearnRemoteChoice.value !== IR_NEW_REMOTE) {
+    return Number(irLearnRemoteChoice.value)
+  }
+  const name = irNewRemoteName.value.trim()
+  if (!name) return null
+  const existing = irRemotesList.value.find((r) => r.name === name)
+  if (existing) return existing.id
+  const created = await irApi.createRemote(name)
+  await loadIrRemotes()
+  irLearnRemoteChoice.value = String(created.id)
+  return created.id
+}
+
+async function startIrLearn() {
+  if (irStartingLearn.value || irLearnState.value === 'waiting') return
+  const buttonName = irLearnButtonName.value.trim()
+  if (!buttonName) {
+    irLearnState.value = 'failed'
+    irLearnError.value = t('settings.irSection.errorButtonName')
+    return
+  }
+  irStartingLearn.value = true
+  irLearnError.value = ''
+  irLearnDetail.value = ''
+  try {
+    const remoteId = await ensureLearnRemoteId()
+    if (remoteId === null) {
+      irLearnState.value = 'failed'
+      irLearnError.value = t('settings.irSection.errorRemoteName')
+      return
+    }
+    await irApi.learn(remoteId, buttonName)
+    irLearnState.value = 'waiting'
+    if (irLearnGuardTimer !== null) clearTimeout(irLearnGuardTimer)
+    const timeout = Math.max(irForm.value.learn_timeout_ms, 1000) + 3000
+    irLearnGuardTimer = window.setTimeout(() => {
+      if (irLearnState.value === 'waiting') {
+        irLearnState.value = 'failed'
+        irLearnError.value = t('settings.irSection.errorTimeout')
+      }
+    }, timeout)
+  } catch (error) {
+    irLearnState.value = 'failed'
+    irLearnError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    irStartingLearn.value = false
+  }
+}
+
+async function cancelIrLearn() {
+  try {
+    await irApi.cancelLearn()
+  } catch {}
+  if (irLearnGuardTimer !== null) clearTimeout(irLearnGuardTimer)
+  irLearnState.value = 'idle'
+}
+
+function handleIrLearnEvent(event: IrLearnEvent) {
+  if (irLearnGuardTimer !== null) clearTimeout(irLearnGuardTimer)
+  switch (event.state) {
+    case 'waiting':
+      irLearnState.value = 'waiting'
+      break
+    case 'saved':
+      irLearnState.value = 'saved'
+      irLearnDetail.value = event.proto
+        ? `${event.proto} · 0x${(event.scancode ?? 0).toString(16)}`
+        : ''
+      irLearnButtonName.value = ''
+      void loadIrRemotes()
+      break
+    case 'failed':
+      irLearnState.value = 'failed'
+      irLearnError.value = event.message || t('settings.irSection.errorFailed')
+      break
+    case 'cancelled':
+      irLearnState.value = 'idle'
+      break
+  }
+}
+
+const { on: onWsEvent, off: offWsEvent, connect: connectWs } = useWebSocket()
+
+function irLearnDotClass(state: string): string {
+  switch (state) {
+    case 'waiting': return 'bg-green-500 animate-pulse'
+    case 'saved': return 'bg-blue-500'
+    case 'failed': return 'bg-red-500'
+    default: return 'bg-muted-foreground'
+  }
+}
+
+async function irDeleteRemote(remote: IrRemote) {
+  if (!confirm(t('settings.irSection.confirmDeleteRemote', { name: remote.name }))) return
+  try {
+    await irApi.deleteRemote(remote.id)
+    await loadIrRemotes()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : String(error))
+  }
+}
+
+async function irRenameRemoteSubmit() {
+  if (irRenamingRemote.value === null) return
+  try {
+    await irApi.renameRemote(irRenamingRemote.value, irRemoteRenameValue.value.trim())
+    irRenamingRemote.value = null
+    await loadIrRemotes()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : String(error))
+  }
+}
+
+async function irDeleteButton(buttonId: number) {
+  if (!confirm(t('settings.irSection.confirmDeleteButton'))) return
+  try {
+    await irApi.deleteButton(buttonId)
+    await loadIrRemotes()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : String(error))
+  }
+}
+
+async function irRenameButtonSubmit() {
+  if (irRenamingButton.value === null) return
+  try {
+    await irApi.updateButton(irRenamingButton.value, { name: irButtonRenameValue.value.trim() })
+    irRenamingButton.value = null
+    await loadIrRemotes()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : String(error))
+  }
+}
+
+async function irSetSlot(buttonId: number, slot: number | null) {
+  try {
+    await irApi.updateButton(buttonId, { slot })
+    await loadIrRemotes()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : String(error))
+  }
+}
+
+async function irSendButton(buttonId: number) {
+  try {
+    await irApi.send(buttonId)
+  } catch {
+    // Toast handled by request layer.
+  }
+}
+
+function irExportRemote(remote: IrRemote) {
+  window.location.href = irApi.exportRemoteUrl(remote.id)
+}
+
+function irTriggerImport() {
+  irFileInput.value?.click()
+}
+
+async function irOnImportFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  irImporting.value = true
+  try {
+    const text = await file.text()
+    const pack = JSON.parse(text)
+    const result = await irApi.importPack(pack)
+    toast.success(
+      t('settings.irSection.importResult', {
+        remotes: result.remotes_imported + result.remotes_merged,
+        buttons: result.buttons_imported,
+        skipped: result.buttons_skipped,
+      }),
+    )
+    await loadIrRemotes()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : String(error))
+  } finally {
+    irImporting.value = false
+  }
+}
+
+onWsEvent('ir.learn', handleIrLearnEvent)
+
+onUnmounted(() => {
+  offWsEvent('ir.learn', handleIrLearnEvent)
+  if (irLearnGuardTimer !== null) clearTimeout(irLearnGuardTimer)
+})
+
+// -------------------------- end IR Remote --------------------------
 
 async function loadAtxConfig() {
   try {
@@ -4292,6 +4608,282 @@ watch(isWindows, () => {
               <CardFooter class="border-t pt-4 justify-end">
                 <Button :disabled="wolSaving" @click="saveWolSettings">
                   <Loader2 v-if="wolSaving" class="size-4 mr-2 animate-spin" /><Check v-else-if="wolSaved" class="size-4 mr-2" /><Save v-else class="size-4 mr-2" />{{ wolSaving ? t('actionbar.applying') : wolSaved ? t('common.success') : t('common.save') }}
+                </Button>
+              </CardFooter>
+            </Card>
+          </div>
+
+          <!-- IR Remote Section -->
+          <div v-show="activeSection === 'ir'" class="space-y-4">
+            <!-- Learn new command -->
+            <Card>
+              <CardHeader>
+                <CardTitle class="flex items-center gap-2">
+                  <Radio class="size-4" />
+                  {{ t('settings.irSection.learnTitle') }}
+                </CardTitle>
+                <CardDescription>{{ t('settings.irSection.learnDesc') }}</CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-4">
+                <div class="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+                  <div class="space-y-2">
+                    <Label for="ir-learn-button">{{ t('settings.irSection.buttonName') }}</Label>
+                    <Input
+                      id="ir-learn-button"
+                      v-model="irLearnButtonName"
+                      :placeholder="t('settings.irSection.buttonNamePlaceholder')"
+                      :disabled="irLearnState === 'waiting'"
+                    />
+                  </div>
+                  <div class="space-y-2">
+                    <Label for="ir-learn-remote">{{ t('settings.irSection.parentRemote') }}</Label>
+                    <Select v-model="irLearnRemoteChoice" :disabled="irLearnState === 'waiting'">
+                      <SelectTrigger id="ir-learn-remote" class="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem :value="IR_NEW_REMOTE">{{ t('settings.irSection.newRemote') }}</SelectItem>
+                        <SelectItem v-for="remote in irRemotesList" :key="remote.id" :value="String(remote.id)">
+                          {{ remote.name }}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      v-if="irLearnRemoteChoice === IR_NEW_REMOTE"
+                      v-model="irNewRemoteName"
+                      :placeholder="t('settings.irSection.newRemoteNamePlaceholder')"
+                      class="mt-2"
+                      :disabled="irLearnState === 'waiting'"
+                    />
+                  </div>
+                  <div class="flex items-end gap-2">
+                    <Button
+                      v-if="irLearnState !== 'waiting'"
+                      :disabled="irStartingLearn"
+                      @click="startIrLearn"
+                    >
+                      <Loader2 v-if="irStartingLearn" class="size-4 mr-2 animate-spin" />
+                      <Radio v-else class="size-4 mr-2" />
+                      {{ t('settings.irSection.startLearn') }}
+                    </Button>
+                    <Button v-else variant="destructive" @click="cancelIrLearn">
+                      <Square class="size-4 mr-2" />
+                      {{ t('settings.irSection.cancelLearn') }}
+                    </Button>
+                  </div>
+                </div>
+
+                <div
+                  v-if="irLearnState !== 'idle'"
+                  class="flex items-center gap-3 rounded-md border p-3 text-sm"
+                >
+                  <Circle :class="['size-3 shrink-0 fill-current', irLearnDotClass(irLearnState)]" />
+                  <div class="min-w-0 flex-1">
+                    <template v-if="irLearnState === 'waiting'">
+                      <p>{{ t('settings.irSection.stateWaiting') }}</p>
+                    </template>
+                    <template v-else-if="irLearnState === 'saved'">
+                      <p class="font-medium">{{ t('settings.irSection.stateSaved') }}</p>
+                      <p v-if="irLearnDetail" class="text-xs text-muted-foreground">{{ irLearnDetail }}</p>
+                    </template>
+                    <template v-else-if="irLearnState === 'failed'">
+                      <p class="font-medium">{{ t('settings.irSection.stateFailed') }}</p>
+                      <p v-if="irLearnError" class="text-xs text-muted-foreground">{{ irLearnError }}</p>
+                    </template>
+                    <template v-else>
+                      <p>{{ t('settings.irSection.stateIdle') }}</p>
+                    </template>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <!-- My commands -->
+            <Card>
+              <CardHeader>
+                <CardTitle>{{ t('settings.irSection.myCommandsTitle') }}</CardTitle>
+                <CardDescription>{{ t('settings.irSection.myCommandsDesc') }}</CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-4">
+                <div v-if="irRemotesList.length === 0" class="text-sm text-muted-foreground py-2">
+                  {{ t('settings.irSection.noRemotesYet') }}
+                </div>
+
+                <div
+                  v-for="remote in irRemotesList"
+                  :key="remote.id"
+                  class="rounded-md border p-3 space-y-3"
+                >
+                  <div class="flex items-center justify-between gap-2">
+                    <template v-if="irRenamingRemote === remote.id">
+                      <Input v-model="irRemoteRenameValue" class="max-w-xs h-8" @keyup.enter="irRenameRemoteSubmit" />
+                      <div class="flex items-center gap-1">
+                        <Button variant="ghost" size="icon-sm" :aria-label="t('common.save')" @click="irRenameRemoteSubmit"><Check class="size-4" /></Button>
+                        <Button variant="ghost" size="icon-sm" :aria-label="t('common.cancel')" @click="irRenamingRemote = null"><Square class="size-4" /></Button>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <div class="flex min-w-0 items-center gap-2">
+                        <Radio class="size-4 shrink-0 text-muted-foreground" />
+                        <span class="truncate text-sm font-medium">{{ remote.name }}</span>
+                        <Badge variant="secondary">{{ remote.buttons.length }}</Badge>
+                      </div>
+                      <div class="flex items-center gap-1 shrink-0">
+                        <Button variant="ghost" size="icon-sm" :aria-label="t('common.rename')" @click="irRenamingRemote = remote.id; irRemoteRenameValue = remote.name"><Pencil class="size-4" /></Button>
+                        <Button variant="ghost" size="icon-sm" :aria-label="t('settings.irSection.export')" @click="irExportRemote(remote)"><Download class="size-4" /></Button>
+                        <Button variant="ghost" size="icon-sm" :aria-label="t('common.delete')" @click="irDeleteRemote(remote)"><Trash2 class="size-4" /></Button>
+                      </div>
+                    </template>
+                  </div>
+
+                  <div v-if="remote.buttons.length > 0" class="grid gap-2 sm:grid-cols-2">
+                    <div
+                      v-for="button in remote.buttons"
+                      :key="button.id"
+                      class="flex items-center gap-2 rounded-md bg-muted/40 px-2.5 py-2"
+                    >
+                      <template v-if="irRenamingButton === button.id">
+                        <Input v-model="irButtonRenameValue" class="h-7 flex-1 text-xs" @keyup.enter="irRenameButtonSubmit" />
+                        <Button variant="ghost" size="icon-sm" class="size-7" :aria-label="t('common.save')" @click="irRenameButtonSubmit"><Check class="size-3.5" /></Button>
+                        <Button variant="ghost" size="icon-sm" class="size-7" :aria-label="t('common.cancel')" @click="irRenamingButton = null"><Square class="size-3.5" /></Button>
+                      </template>
+                      <template v-else>
+                        <div class="min-w-0 flex-1">
+                          <p class="truncate text-xs font-medium">{{ button.name }}</p>
+                          <p class="text-[10px] text-muted-foreground">
+                            {{ button.proto }}<template v-if="button.scancode !== null"> · 0x{{ button.scancode.toString(16) }}</template>
+                          </p>
+                        </div>
+                        <select
+                          class="h-7 rounded-md border bg-transparent px-1.5 text-[11px]"
+                          :value="button.slot ?? ''"
+                          :aria-label="t('settings.irSection.slotBind')"
+                          @change="irSetSlot(button.id, ($event.target as HTMLSelectElement).value === '' ? null : Number(($event.target as HTMLSelectElement).value))"
+                        >
+                          <option value="">{{ t('settings.irSection.slotNone') }}</option>
+                          <option v-for="slot in 8" :key="slot" :value="slot">{{ t('settings.irSection.slotN', { n: slot }) }}</option>
+                        </select>
+                        <Button variant="ghost" size="icon-sm" class="size-7" :aria-label="t('settings.irSection.sendTest')" @click="irSendButton(button.id)"><Send class="size-3.5" /></Button>
+                        <Button variant="ghost" size="icon-sm" class="size-7" :aria-label="t('common.rename')" @click="irRenamingButton = button.id; irButtonRenameValue = button.name"><Pencil class="size-3.5" /></Button>
+                        <Button variant="ghost" size="icon-sm" class="size-7" :aria-label="t('common.delete')" @click="irDeleteButton(button.id)"><Trash2 class="size-3.5" /></Button>
+                      </template>
+                    </div>
+                  </div>
+                  <p v-else class="text-xs text-muted-foreground">{{ t('settings.irSection.noButtonsInRemote') }}</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <!-- Template library (import) -->
+            <Card>
+              <CardHeader>
+                <CardTitle>{{ t('settings.irSection.libraryTitle') }}</CardTitle>
+                <CardDescription>{{ t('settings.irSection.libraryDesc') }}</CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-3">
+                <input
+                  ref="irFileInput"
+                  type="file"
+                  accept=".json,application/json"
+                  class="hidden"
+                  @change="irOnImportFile"
+                />
+                <Button variant="outline" :disabled="irImporting" @click="irTriggerImport">
+                  <Loader2 v-if="irImporting" class="size-4 mr-2 animate-spin" />
+                  <Upload v-else class="size-4 mr-2" />
+                  {{ t('settings.irSection.importPack') }}
+                </Button>
+                <p class="text-xs text-muted-foreground">{{ t('settings.irSection.libraryHint') }}</p>
+              </CardContent>
+            </Card>
+
+            <!-- Hardware settings -->
+            <Card>
+              <CardHeader>
+                <CardTitle>{{ t('settings.irSection.hwTitle') }}</CardTitle>
+                <CardDescription>{{ t('settings.irSection.hwDesc') }}</CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-4">
+                <div v-if="irHardware" class="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                  <div class="flex items-center gap-2">
+                    <Circle :class="['size-2.5 shrink-0 fill-current', irHardware.rx_available ? 'bg-green-500' : 'bg-red-500']" />
+                    {{ t('settings.irSection.hwReceiver') }}{{ irHardware.rx_device ? ` (${irHardware.rx_device})` : '' }}
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <Circle :class="['size-2.5 shrink-0 fill-current', irHardware.tx_available ? 'bg-green-500' : 'bg-red-500']" />
+                    {{ t('settings.irSection.hwTransmitter') }} ({{ irHardware.tx_mode }})
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <Circle :class="['size-2.5 shrink-0 fill-current', irHardware.led_ready ? 'bg-green-500' : 'bg-yellow-500']" />
+                    {{ t('settings.irSection.hwLed') }}
+                  </div>
+                </div>
+
+                <div class="flex items-center justify-between gap-3">
+                  <Label for="ir-enabled" class="shrink-0">{{ t('settings.irSection.enableFeature') }}</Label>
+                  <Switch id="ir-enabled" v-model="irForm.enabled" />
+                </div>
+
+                <Separator />
+
+                <div class="grid gap-4 sm:grid-cols-2">
+                  <div class="space-y-2">
+                    <Label for="ir-rx-device">{{ t('settings.irSection.rxDevice') }}</Label>
+                    <Input id="ir-rx-device" v-model="irForm.rx_device" placeholder="auto" />
+                  </div>
+                  <div class="space-y-2">
+                    <Label for="ir-tx-mode">{{ t('settings.irSection.txMode') }}</Label>
+                    <Select v-model="irForm.tx_mode">
+                      <SelectTrigger id="ir-tx-mode" class="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">{{ t('settings.irSection.txModeAuto') }}</SelectItem>
+                        <SelectItem value="lirc">{{ t('settings.irSection.txModeLirc') }}</SelectItem>
+                        <SelectItem value="gpio">{{ t('settings.irSection.txModeGpio') }}</SelectItem>
+                        <SelectItem value="none">{{ t('settings.irSection.txModeNone') }}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div class="space-y-2">
+                    <Label for="ir-tx-chip">{{ t('settings.irSection.txGpioChip') }}</Label>
+                    <Input id="ir-tx-chip" v-model="irForm.tx_gpio_chip" :disabled="irForm.tx_mode === 'lirc' || irForm.tx_mode === 'none'" />
+                  </div>
+                  <div class="space-y-2">
+                    <Label for="ir-tx-line">{{ t('settings.irSection.txGpioLine') }}</Label>
+                    <Input id="ir-tx-line" type="number" v-model.number="irForm.tx_gpio_line" min="0" max="1023" :disabled="irForm.tx_mode === 'lirc' || irForm.tx_mode === 'none'" />
+                  </div>
+                  <div class="space-y-2">
+                    <Label for="ir-carrier">{{ t('settings.irSection.carrier') }}</Label>
+                    <Input id="ir-carrier" type="number" v-model.number="irForm.carrier" min="20000" max="60000" step="1000" />
+                  </div>
+                  <div class="space-y-2">
+                    <Label for="ir-timeout">{{ t('settings.irSection.learnTimeout') }}</Label>
+                    <Input id="ir-timeout" type="number" v-model.number="irForm.learn_timeout_ms" min="1000" max="60000" step="1000" />
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div class="flex items-center justify-between gap-3">
+                  <Label for="ir-led-enabled" class="shrink-0">{{ t('settings.irSection.ledEnabled') }}</Label>
+                  <Switch id="ir-led-enabled" v-model="irForm.led_enabled" />
+                </div>
+                <div v-if="irForm.led_enabled" class="space-y-2">
+                  <div class="flex items-center justify-between">
+                    <Label for="ir-led-brightness">{{ t('settings.irSection.ledBrightness') }}</Label>
+                    <span class="text-xs text-muted-foreground">{{ irForm.led_brightness }}%</span>
+                  </div>
+                  <input
+                    id="ir-led-brightness"
+                    type="range"
+                    min="1"
+                    max="100"
+                    v-model.number="irForm.led_brightness"
+                    class="w-full accent-primary"
+                  />
+                  <p class="text-xs text-muted-foreground">{{ t('settings.irSection.ledHint') }}</p>
+                </div>
+              </CardContent>
+              <CardFooter class="border-t pt-4 justify-end">
+                <Button :disabled="irSaving" @click="saveIrSettings">
+                  <Loader2 v-if="irSaving" class="size-4 mr-2 animate-spin" /><Check v-else-if="irSaved" class="size-4 mr-2" /><Save v-else class="size-4 mr-2" />{{ irSaving ? t('actionbar.applying') : irSaved ? t('common.success') : t('common.save') }}
                 </Button>
               </CardFooter>
             </Card>

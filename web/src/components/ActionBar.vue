@@ -35,6 +35,7 @@ import {
   HardDrive,
   Settings,
   Power,
+  Radio,
   BarChart3,
   Terminal,
   MoreHorizontal,
@@ -42,6 +43,7 @@ import {
 } from 'lucide-vue-next'
 import PasteModal from '@/components/PasteModal.vue'
 import AtxPopover from '@/components/AtxPopover.vue'
+import IrRemotePopover from '@/components/IrRemotePopover.vue'
 import VideoConfigPopover, { type VideoMode } from '@/components/VideoConfigPopover.vue'
 import HidConfigPopover from '@/components/HidConfigPopover.vue'
 import AudioConfigPopover from '@/components/AudioConfigPopover.vue'
@@ -94,14 +96,17 @@ const emit = defineEmits<{
 
 const pasteOpen = ref(false)
 const atxOpen = ref(false)
+const irOpen = ref(false)
 const videoPopoverOpen = ref(false)
 const hidPopoverOpen = ref(false)
 const audioPopoverOpen = ref(false)
 const msdDialogOpen = ref(false)
 
 const mobileAtxOpen = ref(false)
+const mobileIrOpen = ref(false)
 const mobilePasteOpen = ref(false)
 const mobileAtxOpenTime = ref(0)
+const mobileIrOpenTime = ref(0)
 const mobilePasteOpenTime = ref(0)
 
 const OPEN_GUARD_MS = 350
@@ -123,6 +128,11 @@ const openMobileAtx = () => openFromOverflow(() => {
   mobileAtxOpenTime.value = Date.now()
 })
 
+const openMobileIr = () => openFromOverflow(() => {
+  mobileIrOpen.value = true
+  mobileIrOpenTime.value = Date.now()
+})
+
 const openMobilePaste = () => openFromOverflow(() => {
   if (!showPasteText.value) return
   mobilePasteOpen.value = true
@@ -138,7 +148,7 @@ let layoutResizeObserver: ResizeObserver | null = null
 
 type CollapsibleItem =
   | 'video' | 'audio' | 'hid'
-  | 'msd' | 'atx' | 'paste'
+  | 'msd' | 'atx' | 'ir' | 'paste'
   | 'stats' | 'terminal' | 'settings'
 
 interface ItemSpec {
@@ -152,6 +162,7 @@ const ITEM_SPECS: ItemSpec[] = [
   { id: 'hid',       side: 'left' },
   { id: 'msd',       side: 'left' },
   { id: 'atx',       side: 'left' },
+  { id: 'ir',        side: 'left' },
   { id: 'paste',     side: 'left' },
   { id: 'stats',     side: 'right' },
   { id: 'terminal',  side: 'right' },
@@ -366,6 +377,21 @@ const hasRightOverflow = computed(() => {
           </Popover>
         </div>
 
+        <!-- IR Remote Control - Adaptive -->
+        <div v-if="isVisible('ir')">
+          <Popover v-model:open="irOpen">
+            <PopoverTrigger as-child>
+              <Button variant="ghost" size="sm" class="h-8 gap-1.5 text-xs">
+                <Radio class="size-4" />
+                <span v-if="visibleSet.get('ir') === 'label'">{{ t('actionbar.irRemote') }}</span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent class="w-[min(280px,90vw)] p-0" align="start">
+              <IrRemotePopover v-if="irOpen" />
+            </PopoverContent>
+          </Popover>
+        </div>
+
         <!-- Paste Text - Adaptive -->
         <div v-if="showPasteText && isVisible('paste')">
           <Popover v-model:open="pasteOpen">
@@ -491,6 +517,12 @@ const hasRightOverflow = computed(() => {
               {{ t('actionbar.power') }}
             </DropdownMenuItem>
 
+            <!-- IR Remote -->
+            <DropdownMenuItem v-if="!isVisible('ir')" @click="openMobileIr">
+              <Radio class="size-4 mr-2" />
+              {{ t('actionbar.irRemote') }}
+            </DropdownMenuItem>
+
             <!-- Paste -->
             <DropdownMenuItem v-if="showPasteText && !isVisible('paste')" @click="openMobilePaste">
               <ClipboardPaste class="size-4 mr-2" />
@@ -566,6 +598,21 @@ const hasRightOverflow = computed(() => {
     </SheetContent>
   </Sheet>
 
+  <!-- Mobile IR Remote Sheet — used when IR is opened from the overflow menu. -->
+  <Sheet v-model:open="mobileIrOpen">
+    <SheetContent
+      side="bottom"
+      class="max-h-[90dvh] overflow-y-auto"
+      @pointer-down-outside="(e) => guardOutside(mobileIrOpenTime, e)"
+      @interact-outside="(e) => guardOutside(mobileIrOpenTime, e)"
+    >
+      <SheetHeader class="mb-2">
+        <SheetTitle>{{ t('actionbar.irRemote') }}</SheetTitle>
+      </SheetHeader>
+      <IrRemotePopover v-if="mobileIrOpen" />
+    </SheetContent>
+  </Sheet>
+
   <!-- Hidden measurement container: renders each collapsible button in both
        icon-only and with-label forms so we can read their real offsetWidth. -->
   <div ref="measureRef" aria-hidden="true" class="fixed pointer-events-none" style="visibility: hidden; top: -9999px; left: -9999px; white-space: nowrap;">
@@ -576,6 +623,9 @@ const hasRightOverflow = computed(() => {
       <!-- ATX -->
       <Button data-measure="atx-icon" variant="ghost" size="sm" class="h-8 gap-1.5 text-xs"><Power class="size-4" /></Button>
       <Button data-measure="atx-label" variant="ghost" size="sm" class="h-8 gap-1.5 text-xs"><Power class="size-4" />{{ t('actionbar.power') }}</Button>
+      <!-- IR Remote -->
+      <Button data-measure="ir-icon" variant="ghost" size="sm" class="h-8 gap-1.5 text-xs"><Radio class="size-4" /></Button>
+      <Button data-measure="ir-label" variant="ghost" size="sm" class="h-8 gap-1.5 text-xs"><Radio class="size-4" />{{ t('actionbar.irRemote') }}</Button>
       <!-- Paste -->
       <Button data-measure="paste-icon" variant="ghost" size="sm" class="h-8 gap-1.5 text-xs"><ClipboardPaste class="size-4" /></Button>
       <Button data-measure="paste-label" variant="ghost" size="sm" class="h-8 gap-1.5 text-xs"><ClipboardPaste class="size-4" />{{ t('actionbar.paste') }}</Button>

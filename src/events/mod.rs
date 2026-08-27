@@ -5,8 +5,8 @@ pub mod types;
 use self::types::EXACT_EVENT_TOPICS;
 
 pub use types::{
-    AtxDeviceInfo, AudioDeviceInfo, ClientStats, HidDeviceInfo, LedState, MsdDeviceInfo,
-    MsdDeviceMediaInfo, StreamKind, SystemEvent, TtydDeviceInfo, VideoDeviceInfo,
+    AtxDeviceInfo, AudioDeviceInfo, ClientStats, HidDeviceInfo, IrLearnEvent, LedState,
+    MsdDeviceInfo, MsdDeviceMediaInfo, StreamKind, SystemEvent, TtydDeviceInfo, VideoDeviceInfo,
 };
 
 use std::sync::RwLock;

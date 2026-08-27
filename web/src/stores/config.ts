@@ -5,6 +5,7 @@ import {
   atxConfigApi,
   audioConfigApi,
   hidConfigApi,
+  irConfigApi,
   msdConfigApi,
   otgConfigApi,
   rtspConfigApi,
@@ -23,6 +24,8 @@ import type {
   AuthConfigUpdate,
   HidConfig,
   HidConfigUpdate,
+  IrConfig,
+  IrConfigUpdate,
   MsdConfig,
   MsdConfigUpdate,
   OtgConfigResponse,
@@ -62,6 +65,7 @@ export const useConfigStore = defineStore('config', () => {
   const stream = ref<StreamConfigResponse | null>(null)
   const web = ref<WebConfig | null>(null)
   const atx = ref<AtxConfig | null>(null)
+  const ir = ref<IrConfig | null>(null)
   const rtspConfig = ref<ApiRtspConfigResponse | null>(null)
   const rtspStatus = ref<ApiRtspStatusResponse | null>(null)
   const vncConfig = ref<ApiVncConfigResponse | null>(null)
@@ -78,6 +82,7 @@ export const useConfigStore = defineStore('config', () => {
   const streamLoading = ref(false)
   const webLoading = ref(false)
   const atxLoading = ref(false)
+  const irLoading = ref(false)
   const rtspLoading = ref(false)
   const vncLoading = ref(false)
   const rustdeskLoading = ref(false)
@@ -90,6 +95,7 @@ export const useConfigStore = defineStore('config', () => {
   const streamError = ref<string | null>(null)
   const webError = ref<string | null>(null)
   const atxError = ref<string | null>(null)
+  const irError = ref<string | null>(null)
   const rtspError = ref<string | null>(null)
   const vncError = ref<string | null>(null)
   const rustdeskError = ref<string | null>(null)
@@ -102,6 +108,7 @@ export const useConfigStore = defineStore('config', () => {
   let streamPromise: Promise<StreamConfigResponse> | null = null
   let webPromise: Promise<WebConfig> | null = null
   let atxPromise: Promise<AtxConfig> | null = null
+  let irPromise: Promise<IrConfig> | null = null
   let rtspPromise: Promise<ApiRtspConfigResponse> | null = null
   let rtspStatusPromise: Promise<ApiRtspStatusResponse> | null = null
   let vncPromise: Promise<ApiVncConfigResponse> | null = null
@@ -283,6 +290,29 @@ export const useConfigStore = defineStore('config', () => {
       })
 
     atxPromise = request
+    return request
+  }
+
+  async function refreshIr() {
+    if (irLoading.value && irPromise) return irPromise
+    irLoading.value = true
+    irError.value = null
+    const request = irConfigApi
+      .get()
+      .then((response) => {
+        ir.value = response
+        return response
+      })
+      .catch((error) => {
+        irError.value = normalizeErrorMessage(error)
+        throw error
+      })
+      .finally(() => {
+        irLoading.value = false
+        irPromise = null
+      })
+
+    irPromise = request
     return request
   }
 
@@ -483,6 +513,11 @@ export const useConfigStore = defineStore('config', () => {
     return refreshAtx()
   }
 
+  function ensureIr() {
+    if (ir.value) return Promise.resolve(ir.value)
+    return refreshIr()
+  }
+
   function ensureRtspConfig() {
     if (rtspConfig.value) return Promise.resolve(rtspConfig.value)
     return refreshRtspConfig()
@@ -553,6 +588,12 @@ export const useConfigStore = defineStore('config', () => {
     return response
   }
 
+  async function updateIr(update: IrConfigUpdate) {
+    const response = await irConfigApi.update(update)
+    ir.value = response
+    return response
+  }
+
   async function updateRtsp(update: ApiRtspConfigUpdate) {
     const response = await rtspConfigApi.update(update)
     rtspConfig.value = response
@@ -592,6 +633,7 @@ export const useConfigStore = defineStore('config', () => {
     stream,
     web,
     atx,
+    ir,
     rtspConfig,
     rtspStatus,
     vncConfig,
@@ -607,6 +649,7 @@ export const useConfigStore = defineStore('config', () => {
     streamLoading,
     webLoading,
     atxLoading,
+    irLoading,
     rtspLoading,
     vncLoading,
     rustdeskLoading,
@@ -618,6 +661,7 @@ export const useConfigStore = defineStore('config', () => {
     streamError,
     webError,
     atxError,
+    irError,
     rtspError,
     vncError,
     rustdeskError,
@@ -629,6 +673,7 @@ export const useConfigStore = defineStore('config', () => {
     refreshStream,
     refreshWeb,
     refreshAtx,
+    refreshIr,
     refreshRtspConfig,
     refreshRtspStatus,
     refreshVncConfig,
@@ -644,6 +689,7 @@ export const useConfigStore = defineStore('config', () => {
     ensureStream,
     ensureWeb,
     ensureAtx,
+    ensureIr,
     ensureRtspConfig,
     ensureVncConfig,
     ensureRustdeskConfig,
@@ -656,6 +702,7 @@ export const useConfigStore = defineStore('config', () => {
     updateStream,
     updateWeb,
     updateAtx,
+    updateIr,
     updateRtsp,
     updateVnc,
     updateRustdesk,

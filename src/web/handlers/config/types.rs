@@ -1349,6 +1349,118 @@ impl RedfishConfigUpdate {
     }
 }
 
+/// IR remote configuration update request
+#[typeshare]
+#[derive(Debug, Deserialize)]
+pub struct IrConfigUpdate {
+    pub enabled: Option<bool>,
+    pub rx_device: Option<String>,
+    pub tx_mode: Option<String>,
+    pub tx_gpio_chip: Option<String>,
+    pub tx_gpio_line: Option<u32>,
+    pub tx_mmap_base: Option<u64>,
+    pub tx_mmap_oen_offset: Option<u32>,
+    pub tx_mmap_out_offset: Option<u32>,
+    pub tx_bit: Option<u32>,
+    pub carrier: Option<u32>,
+    pub learn_timeout_ms: Option<u64>,
+    pub led_enabled: Option<bool>,
+    pub led_mmap_base: Option<u64>,
+    pub led_oen_offset: Option<u32>,
+    pub led_out_offset: Option<u32>,
+    pub led_bit: Option<u32>,
+    pub led_brightness: Option<u32>,
+}
+
+impl IrConfigUpdate {
+    pub fn validate(&self) -> crate::error::Result<()> {
+        if let Some(tx_mode) = self.tx_mode.as_deref() {
+            if !matches!(tx_mode, "auto" | "lirc" | "gpio" | "none") {
+                return Err(AppError::BadRequest(
+                    "tx_mode must be one of: auto, lirc, gpio, none".to_string(),
+                ));
+            }
+        }
+        if let Some(carrier) = self.carrier {
+            if !(20000..=60000).contains(&carrier) {
+                return Err(AppError::BadRequest(
+                    "carrier must be between 20000 and 60000 Hz".to_string(),
+                ));
+            }
+        }
+        if let Some(led_brightness) = self.led_brightness {
+            if !(1..=100).contains(&led_brightness) {
+                return Err(AppError::BadRequest(
+                    "led_brightness must be between 1 and 100".to_string(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn validate_with_current(&self, current: &crate::config::IrConfig) -> crate::error::Result<()> {
+        self.validate()?;
+        let mut merged = current.clone();
+        self.apply_to(&mut merged);
+        merged.normalize();
+        Ok(())
+    }
+
+    pub fn apply_to(&self, config: &mut crate::config::IrConfig) {
+        if let Some(v) = self.enabled {
+            config.enabled = v;
+        }
+        if let Some(ref v) = self.rx_device {
+            config.rx_device = v.trim().to_string();
+        }
+        if let Some(ref v) = self.tx_mode {
+            config.tx_mode = v.to_string();
+        }
+        if let Some(ref v) = self.tx_gpio_chip {
+            config.tx_gpio_chip = v.trim().to_string();
+        }
+        if let Some(v) = self.tx_gpio_line {
+            config.tx_gpio_line = v;
+        }
+        if let Some(v) = self.tx_mmap_base {
+            config.tx_mmap_base = v;
+        }
+        if let Some(v) = self.tx_mmap_oen_offset {
+            config.tx_mmap_oen_offset = v;
+        }
+        if let Some(v) = self.tx_mmap_out_offset {
+            config.tx_mmap_out_offset = v;
+        }
+        if let Some(v) = self.tx_bit {
+            config.tx_bit = v;
+        }
+        if let Some(v) = self.carrier {
+            config.carrier = v;
+        }
+        if let Some(v) = self.learn_timeout_ms {
+            config.learn_timeout_ms = v;
+        }
+        if let Some(v) = self.led_enabled {
+            config.led_enabled = v;
+        }
+        if let Some(v) = self.led_mmap_base {
+            config.led_mmap_base = v;
+        }
+        if let Some(v) = self.led_oen_offset {
+            config.led_oen_offset = v;
+        }
+        if let Some(v) = self.led_out_offset {
+            config.led_out_offset = v;
+        }
+        if let Some(v) = self.led_bit {
+            config.led_bit = v;
+        }
+        if let Some(v) = self.led_brightness {
+            config.led_brightness = v;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

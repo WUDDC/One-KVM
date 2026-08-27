@@ -329,6 +329,26 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             )
     };
 
+    // IR (Infrared Remote) endpoints - Linux only (GPIO / LIRC hardware)
+    #[cfg(target_os = "linux")]
+    let user_routes = {
+        user_routes
+            .route("/config/ir", get(handlers::config::get_ir_config))
+            .route("/config/ir", patch(handlers::config::update_ir_config))
+            .route("/ir/remotes", get(handlers::ir_remotes))
+            .route("/ir/remotes", post(handlers::ir_create_remote))
+            .route("/ir/remotes/{id}", patch(handlers::ir_rename_remote))
+            .route("/ir/remotes/{id}", delete(handlers::ir_delete_remote))
+            .route("/ir/remotes/{id}/export", get(handlers::ir_export_remote))
+            .route("/ir/learn", post(handlers::ir_learn))
+            .route("/ir/learn/cancel", post(handlers::ir_learn_cancel))
+            .route("/ir/buttons/{id}/send", post(handlers::ir_send))
+            .route("/ir/buttons/{id}", patch(handlers::ir_update_button))
+            .route("/ir/buttons/{id}", delete(handlers::ir_delete_button))
+            .route("/ir/import", post(handlers::ir_import))
+            .route("/ir/hardware", get(handlers::ir_hardware))
+    };
+
     // Protected routes (all authenticated users)
     let protected_routes = user_routes;
 

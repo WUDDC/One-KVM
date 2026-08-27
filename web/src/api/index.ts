@@ -842,6 +842,7 @@ export {
   otgNetworkApi,
   uacApi,
   atxConfigApi,
+  irConfigApi,
   audioConfigApi,
   extensionsApi,
   redfishConfigApi,
@@ -951,6 +952,113 @@ export const usbApi = {
       method: 'POST',
       body: JSON.stringify({ bus_num: busNum, dev_num: devNum }),
     }),
+}
+
+export interface IrButton {
+  id: number
+  remote_id: number
+  name: string
+  proto: string
+  scancode: number | null
+  has_raw: boolean
+  carrier: number
+  slot: number | null
+}
+
+export interface IrRemote {
+  id: number
+  name: string
+  buttons: IrButton[]
+}
+
+export interface IrHardwareStatus {
+  rx_available: boolean
+  rx_device: string | null
+  tx_available: boolean
+  tx_mode: string
+  tx_device: string | null
+  led_ready: boolean
+  learn_active: boolean
+}
+
+export interface IrLearnEvent {
+  state: 'waiting' | 'captured' | 'saved' | 'failed' | 'cancelled' | 'sent'
+  message?: string
+  remote_id?: number
+  button_id?: number
+  proto?: string
+  scancode?: number
+}
+
+export interface IrRemotePack {
+  format: string
+  version: number
+  remotes: Array<{
+    name: string
+    buttons: Array<{
+      name: string
+      protocol: string
+      scancode?: number | null
+      raw?: number[] | null
+      carrier?: number | null
+    }>
+  }>
+}
+
+export const irApi = {
+  listRemotes: () => request<{ remotes: IrRemote[] }>('/ir/remotes'),
+
+  createRemote: (name: string) =>
+    request<{ id: number; name: string }>('/ir/remotes', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
+  renameRemote: (id: number, name: string) =>
+    request<{ success: boolean }>('/ir/remotes/' + id, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteRemote: (id: number) =>
+    request<{ success: boolean }>('/ir/remotes/' + id, { method: 'DELETE' }),
+
+  exportRemoteUrl: (id: number) => '/api/ir/remotes/' + id + '/export',
+
+  learn: (remoteId: number, name: string) =>
+    request<{ success: boolean }>('/ir/learn', {
+      method: 'POST',
+      body: JSON.stringify({ remote_id: remoteId, name }),
+    }),
+
+  cancelLearn: () => request<{ success: boolean }>('/ir/learn/cancel', { method: 'POST' }),
+
+  send: (buttonId: number) =>
+    request<{ success: boolean; message?: string }>('/ir/buttons/' + buttonId + '/send', {
+      method: 'POST',
+    }),
+
+  updateButton: (id: number, update: { name?: string; slot?: number | null }) =>
+    request<{ success: boolean }>('/ir/buttons/' + id, {
+      method: 'PATCH',
+      body: JSON.stringify(update),
+    }),
+
+  deleteButton: (id: number) =>
+    request<{ success: boolean }>('/ir/buttons/' + id, { method: 'DELETE' }),
+
+  importPack: (pack: IrRemotePack) =>
+    request<{
+      remotes_imported: number
+      remotes_merged: number
+      buttons_imported: number
+      buttons_skipped: number
+    }>('/ir/import', {
+      method: 'POST',
+      body: JSON.stringify(pack),
+    }),
+
+  hardware: () => request<IrHardwareStatus>('/ir/hardware'),
 }
 
 export { ApiError }

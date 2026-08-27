@@ -25,6 +25,8 @@ pub mod events;
 pub mod extensions;
 #[cfg(feature = "desktop")]
 pub mod hid;
+#[cfg(all(target_os = "linux", feature = "desktop"))]
+pub mod ir;
 #[cfg(all(unix, feature = "desktop"))]
 pub mod msd;
 #[cfg(all(unix, feature = "desktop"))]

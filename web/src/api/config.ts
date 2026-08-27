@@ -32,6 +32,8 @@ import type {
   EasytierConfigUpdate,
   FrpcConfig,
   FrpcConfigUpdate,
+  IrConfig,
+  IrConfigUpdate,
   WebConfigResponse,
   WebConfigUpdate,
   WatchdogConfigResponse,
@@ -42,6 +44,16 @@ import { request } from './request'
 
 export const configApi = {
   getAll: () => request<AppConfig>('/config'),
+}
+
+export const irConfigApi = {
+  get: () => request<IrConfig>('/config/ir', {}, { toastOnError: false }),
+
+  update: (config: IrConfigUpdate) =>
+    request<IrConfig>('/config/ir', {
+      method: 'PATCH',
+      body: JSON.stringify(config),
+    }, { toastOnError: false }),
 }
 
 export const watchdogConfigApi = {
