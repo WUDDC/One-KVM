@@ -1844,6 +1844,25 @@ const irDeleteRemoteTarget = ref<IrRemote | null>(null)
 const irDeleteButtonTarget = ref<number | null>(null)
 const irSlotEdits = ref<Record<number, number | null>>({})
 const irSavingSlots = ref(false)
+const irExpandedRemotes = ref<Set<number>>(new Set())
+
+function irIsExpanded(remoteId: number): boolean {
+  return irExpandedRemotes.value.has(remoteId)
+}
+
+function irExpandRemote(remoteId: number) {
+  if (irExpandedRemotes.value.has(remoteId)) return
+  const next = new Set(irExpandedRemotes.value)
+  next.add(remoteId)
+  irExpandedRemotes.value = next
+}
+
+function irToggleExpand(remoteId: number) {
+  const next = new Set(irExpandedRemotes.value)
+  if (next.has(remoteId)) next.delete(remoteId)
+  else next.add(remoteId)
+  irExpandedRemotes.value = next
+}
 
 const irImporting = ref(false)
 const irFileInput = ref<HTMLInputElement | null>(null)
@@ -1913,6 +1932,7 @@ async function irCreateRemote() {
     const created = existing ?? await irApi.createRemote(name)
     await loadIrRemotes()
     irNewRemoteName.value = ''
+    irExpandRemote(created.id)
     irLearnOpenId.value = created.id
     irLearnState.value = 'idle'
     irLearnError.value = ''
@@ -1932,6 +1952,7 @@ function irOpenLearnRow(remote: IrRemote) {
     return
   }
   irLearnOpenId.value = remote.id
+  irExpandRemote(remote.id)
   irLearnState.value = 'idle'
   irLearnError.value = ''
   irLearnDetail.value = ''
@@ -2136,6 +2157,7 @@ async function irOnImportFile(event: Event) {
   try {
     const text = await file.text()
     const pack = JSON.parse(text)
+    const knownIds = new Set(irRemotesList.value.map((r) => r.id))
     const result = await irApi.importPack(pack)
     toast.success(
       t('settings.irSection.importResult', {
@@ -2145,6 +2167,9 @@ async function irOnImportFile(event: Event) {
       }),
     )
     await loadIrRemotes()
+    for (const remote of irRemotesList.value) {
+      if (!knownIds.has(remote.id)) irExpandRemote(remote.id)
+    }
   } catch (error) {
     toast.error(error instanceof Error ? error.message : String(error))
   } finally {
@@ -4724,23 +4749,37 @@ watch(isWindows, () => {
                 <div
                   v-for="remote in irRemotesList"
                   :key="remote.id"
-                  class="rounded-md border p-3 space-y-3"
+                  class="rounded-md border"
                 >
-                  <div class="flex items-center justify-between gap-2">
+                  <div
+                    class="flex items-center justify-between gap-2 p-3 cursor-pointer select-none"
+                    role="button"
+                    tabindex="0"
+                    :aria-expanded="irIsExpanded(remote.id)"
+                    @click="irToggleExpand(remote.id)"
+                    @keydown.enter.prevent="irToggleExpand(remote.id)"
+                    @keydown.space.prevent="irToggleExpand(remote.id)"
+                  >
                     <template v-if="irRenamingRemote === remote.id">
-                      <Input v-model="irRemoteRenameValue" class="max-w-xs h-8" @keyup.enter="irRenameRemoteSubmit" />
-                      <div class="flex items-center gap-1">
+                      <Input v-model="irRemoteRenameValue" class="max-w-xs h-8" @click.stop @keyup.enter="irRenameRemoteSubmit" />
+                      <div class="flex items-center gap-1" @click.stop>
                         <Button variant="ghost" size="icon-sm" :aria-label="t('common.save')" @click="irRenameRemoteSubmit"><Check class="size-4" /></Button>
                         <Button variant="ghost" size="icon-sm" :aria-label="t('common.cancel')" @click="irRenamingRemote = null"><Square class="size-4" /></Button>
                       </div>
                     </template>
                     <template v-else>
                       <div class="flex min-w-0 items-center gap-2">
+                        <ChevronRight :class="['size-4 shrink-0 text-muted-foreground transition-transform', irIsExpanded(remote.id) && 'rotate-90']" />
                         <Radio class="size-4 shrink-0 text-muted-foreground" />
                         <span class="truncate text-sm font-medium">{{ remote.name }}</span>
                         <Badge variant="secondary">{{ remote.buttons.length }}</Badge>
+                        <span
+                          v-if="irRemoteDirtySlots(remote) > 0"
+                          class="size-2 shrink-0 rounded-full bg-amber-500"
+                          :title="t('settings.irSection.slotPending', { n: irRemoteDirtySlots(remote) })"
+                        />
                       </div>
-                      <div class="flex items-center gap-1 shrink-0">
+                      <div class="flex items-center gap-1 shrink-0" @click.stop>
                         <Button
                           variant="ghost"
                           size="icon-sm"
@@ -4755,6 +4794,7 @@ watch(isWindows, () => {
                     </template>
                   </div>
 
+                  <div v-if="irIsExpanded(remote.id)" class="space-y-3 px-3 pb-3">
                   <div v-if="irLearnOpenId === remote.id" class="space-y-2 rounded-md bg-muted/40 p-3">
                     <form class="flex flex-wrap items-center gap-2" @submit.prevent="startIrLearn(remote)">
                       <Input
@@ -4841,6 +4881,7 @@ watch(isWindows, () => {
                       <Save v-else class="size-4 mr-2" />
                       {{ t('settings.irSection.slotSave') }}
                     </Button>
+                  </div>
                   </div>
                 </div>
 
