@@ -4774,7 +4774,12 @@ watch(isWindows, () => {
                           @change="irSetSlot(button.id, ($event.target as HTMLSelectElement).value === '' ? null : Number(($event.target as HTMLSelectElement).value))"
                         >
                           <option value="">{{ t('settings.irSection.slotNone') }}</option>
-                          <option v-for="slot in 8" :key="slot" :value="slot">{{ t('settings.irSection.slotN', { n: slot }) }}</option>
+                          <option
+                            v-for="slot in 8"
+                            :key="slot"
+                            :value="slot"
+                            :disabled="remote.buttons.some(b => b.id !== button.id && b.slot === slot)"
+                          >{{ t('settings.irSection.slotN', { n: slot }) }}</option>
                         </select>
                         <Button variant="ghost" size="icon-sm" class="size-7" :aria-label="t('settings.irSection.sendTest')" @click="irSendButton(button.id)"><Send class="size-3.5" /></Button>
                         <Button variant="ghost" size="icon-sm" class="size-7" :aria-label="t('common.rename')" @click="irRenamingButton = button.id; irButtonRenameValue = button.name"><Pencil class="size-3.5" /></Button>
