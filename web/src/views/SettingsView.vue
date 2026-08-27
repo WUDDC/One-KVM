@@ -1839,6 +1839,8 @@ const irRenamingRemote = ref<number | null>(null)
 const irRemoteRenameValue = ref('')
 const irRenamingButton = ref<number | null>(null)
 const irButtonRenameValue = ref('')
+const irDeleteRemoteTarget = ref<IrRemote | null>(null)
+const irDeleteButtonTarget = ref<number | null>(null)
 
 const irImporting = ref(false)
 const irFileInput = ref<HTMLInputElement | null>(null)
@@ -2006,8 +2008,14 @@ function irLearnDotClass(state: string): string {
   }
 }
 
-async function irDeleteRemote(remote: IrRemote) {
-  if (!confirm(t('settings.irSection.confirmDeleteRemote', { name: remote.name }))) return
+function irDeleteRemote(remote: IrRemote) {
+  irDeleteRemoteTarget.value = remote
+}
+
+async function irDeleteRemoteConfirmed() {
+  const remote = irDeleteRemoteTarget.value
+  if (remote === null) return
+  irDeleteRemoteTarget.value = null
   try {
     await irApi.deleteRemote(remote.id)
     if (irLearnOpenId.value === remote.id) {
@@ -2031,8 +2039,14 @@ async function irRenameRemoteSubmit() {
   }
 }
 
-async function irDeleteButton(buttonId: number) {
-  if (!confirm(t('settings.irSection.confirmDeleteButton'))) return
+function irDeleteButton(buttonId: number) {
+  irDeleteButtonTarget.value = buttonId
+}
+
+async function irDeleteButtonConfirmed() {
+  const buttonId = irDeleteButtonTarget.value
+  if (buttonId === null) return
+  irDeleteButtonTarget.value = null
   try {
     await irApi.deleteButton(buttonId)
     await loadIrRemotes()
@@ -4881,6 +4895,36 @@ watch(isWindows, () => {
                 </Button>
               </CardFooter>
             </Card>
+
+            <AlertDialog :open="irDeleteRemoteTarget !== null">
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{{ t('common.delete') }}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {{ irDeleteRemoteTarget ? t('settings.irSection.confirmDeleteRemote', { name: irDeleteRemoteTarget.name }) : '' }}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel @click="irDeleteRemoteTarget = null">{{ t('common.cancel') }}</AlertDialogCancel>
+                  <AlertDialogAction @click="irDeleteRemoteConfirmed">{{ t('common.delete') }}</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog :open="irDeleteButtonTarget !== null">
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{{ t('common.delete') }}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {{ t('settings.irSection.confirmDeleteButton') }}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel @click="irDeleteButtonTarget = null">{{ t('common.cancel') }}</AlertDialogCancel>
+                  <AlertDialogAction @click="irDeleteButtonConfirmed">{{ t('common.delete') }}</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
 
           <!-- ttyd Section -->
