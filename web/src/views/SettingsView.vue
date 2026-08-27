@@ -1826,9 +1826,9 @@ const irSaved = ref(false)
 const irRemotesList = ref<IrRemote[]>([])
 const irHardware = ref<IrHardwareStatus | null>(null)
 
-const IR_NEW_REMOTE = '__new__'
-const irLearnRemoteChoice = ref<string>(IR_NEW_REMOTE)
 const irNewRemoteName = ref('')
+const irCreatingRemote = ref(false)
+const irLearnOpenId = ref<number | null>(null)
 const irLearnButtonName = ref('')
 const irLearnState = ref<'idle' | 'waiting' | 'saved' | 'failed' | 'cancelled'>('idle')
 const irLearnError = ref('')
@@ -1898,21 +1898,42 @@ async function saveIrSettings() {
   void loadIrConfig()
 }
 
-async function ensureLearnRemoteId(): Promise<number | null> {
-  if (irLearnRemoteChoice.value !== IR_NEW_REMOTE) {
-    return Number(irLearnRemoteChoice.value)
-  }
+async function irCreateRemote() {
+  if (irCreatingRemote.value) return
   const name = irNewRemoteName.value.trim()
-  if (!name) return null
-  const existing = irRemotesList.value.find((r) => r.name === name)
-  if (existing) return existing.id
-  const created = await irApi.createRemote(name)
-  await loadIrRemotes()
-  irLearnRemoteChoice.value = String(created.id)
-  return created.id
+  if (!name) return
+  irCreatingRemote.value = true
+  try {
+    const existing = irRemotesList.value.find((r) => r.name === name)
+    const created = existing ?? await irApi.createRemote(name)
+    await loadIrRemotes()
+    irNewRemoteName.value = ''
+    irLearnOpenId.value = created.id
+    irLearnState.value = 'idle'
+    irLearnError.value = ''
+    irLearnDetail.value = ''
+    irLearnButtonName.value = ''
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : String(error))
+  } finally {
+    irCreatingRemote.value = false
+  }
 }
 
-async function startIrLearn() {
+function irOpenLearnRow(remote: IrRemote) {
+  if (irLearnState.value === 'waiting') return
+  if (irLearnOpenId.value === remote.id) {
+    irLearnOpenId.value = null
+    return
+  }
+  irLearnOpenId.value = remote.id
+  irLearnState.value = 'idle'
+  irLearnError.value = ''
+  irLearnDetail.value = ''
+  irLearnButtonName.value = ''
+}
+
+async function startIrLearn(remote: IrRemote) {
   if (irStartingLearn.value || irLearnState.value === 'waiting') return
   const buttonName = irLearnButtonName.value.trim()
   if (!buttonName) {
@@ -1924,13 +1945,7 @@ async function startIrLearn() {
   irLearnError.value = ''
   irLearnDetail.value = ''
   try {
-    const remoteId = await ensureLearnRemoteId()
-    if (remoteId === null) {
-      irLearnState.value = 'failed'
-      irLearnError.value = t('settings.irSection.errorRemoteName')
-      return
-    }
-    await irApi.learn(remoteId, buttonName)
+    await irApi.learn(remote.id, buttonName)
     irLearnState.value = 'waiting'
     if (irLearnGuardTimer !== null) clearTimeout(irLearnGuardTimer)
     const timeout = Math.max(irForm.value.learn_timeout_ms, 1000) + 3000
@@ -1995,6 +2010,10 @@ async function irDeleteRemote(remote: IrRemote) {
   if (!confirm(t('settings.irSection.confirmDeleteRemote', { name: remote.name }))) return
   try {
     await irApi.deleteRemote(remote.id)
+    if (irLearnOpenId.value === remote.id) {
+      irLearnOpenId.value = null
+      irLearnState.value = 'idle'
+    }
     await loadIrRemotes()
   } catch (error) {
     toast.error(error instanceof Error ? error.message : String(error))
@@ -4620,87 +4639,32 @@ watch(isWindows, () => {
               <CardHeader>
                 <CardTitle class="flex items-center gap-2">
                   <Radio class="size-4" />
-                  {{ t('settings.irSection.learnTitle') }}
+                  {{ t('settings.irSection.newRemoteTitle') }}
                 </CardTitle>
-                <CardDescription>{{ t('settings.irSection.learnDesc') }}</CardDescription>
+                <CardDescription>{{ t('settings.irSection.newRemoteDesc') }}</CardDescription>
               </CardHeader>
-              <CardContent class="space-y-4">
-                <div class="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-                  <div class="space-y-2">
-                    <Label for="ir-learn-button">{{ t('settings.irSection.buttonName') }}</Label>
-                    <Input
-                      id="ir-learn-button"
-                      v-model="irLearnButtonName"
-                      :placeholder="t('settings.irSection.buttonNamePlaceholder')"
-                      :disabled="irLearnState === 'waiting'"
-                    />
-                  </div>
-                  <div class="space-y-2">
-                    <Label for="ir-learn-remote">{{ t('settings.irSection.parentRemote') }}</Label>
-                    <Select v-model="irLearnRemoteChoice" :disabled="irLearnState === 'waiting'">
-                      <SelectTrigger id="ir-learn-remote" class="w-full"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem :value="IR_NEW_REMOTE">{{ t('settings.irSection.newRemote') }}</SelectItem>
-                        <SelectItem v-for="remote in irRemotesList" :key="remote.id" :value="String(remote.id)">
-                          {{ remote.name }}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      v-if="irLearnRemoteChoice === IR_NEW_REMOTE"
-                      v-model="irNewRemoteName"
-                      :placeholder="t('settings.irSection.newRemoteNamePlaceholder')"
-                      class="mt-2"
-                      :disabled="irLearnState === 'waiting'"
-                    />
-                  </div>
-                  <div class="flex items-end gap-2">
-                    <Button
-                      v-if="irLearnState !== 'waiting'"
-                      :disabled="irStartingLearn"
-                      @click="startIrLearn"
-                    >
-                      <Loader2 v-if="irStartingLearn" class="size-4 mr-2 animate-spin" />
-                      <Radio v-else class="size-4 mr-2" />
-                      {{ t('settings.irSection.startLearn') }}
-                    </Button>
-                    <Button v-else variant="destructive" @click="cancelIrLearn">
-                      <Square class="size-4 mr-2" />
-                      {{ t('settings.irSection.cancelLearn') }}
-                    </Button>
-                  </div>
-                </div>
-
-                <div
-                  v-if="irLearnState !== 'idle'"
-                  class="flex items-center gap-3 rounded-md border p-3 text-sm"
-                >
-                  <Circle :class="['size-3 shrink-0 fill-current', irLearnDotClass(irLearnState)]" />
-                  <div class="min-w-0 flex-1">
-                    <template v-if="irLearnState === 'waiting'">
-                      <p>{{ t('settings.irSection.stateWaiting') }}</p>
-                    </template>
-                    <template v-else-if="irLearnState === 'saved'">
-                      <p class="font-medium">{{ t('settings.irSection.stateSaved') }}</p>
-                      <p v-if="irLearnDetail" class="text-xs text-muted-foreground">{{ irLearnDetail }}</p>
-                    </template>
-                    <template v-else-if="irLearnState === 'failed'">
-                      <p class="font-medium">{{ t('settings.irSection.stateFailed') }}</p>
-                      <p v-if="irLearnError" class="text-xs text-muted-foreground">{{ irLearnError }}</p>
-                    </template>
-                    <template v-else>
-                      <p>{{ t('settings.irSection.stateIdle') }}</p>
-                    </template>
-                  </div>
-                </div>
+              <CardContent>
+                <form class="flex flex-wrap items-center gap-2" @submit.prevent="irCreateRemote">
+                  <Input
+                    id="ir-new-remote-name"
+                    v-model="irNewRemoteName"
+                    :placeholder="t('settings.irSection.newRemotePlaceholder')"
+                    class="max-w-xs"
+                  />
+                  <Button type="submit" :disabled="irCreatingRemote || !irNewRemoteName.trim()">
+                    <Loader2 v-if="irCreatingRemote" class="size-4 mr-2 animate-spin" />
+                    <Plus v-else class="size-4 mr-2" />
+                    {{ t('settings.irSection.createRemote') }}
+                  </Button>
+                </form>
               </CardContent>
             </Card>
 
-            <!-- My commands -->
+            <!-- Remote library (remotes + import) -->
             <Card>
               <CardHeader>
-                <CardTitle>{{ t('settings.irSection.myCommandsTitle') }}</CardTitle>
-                <CardDescription>{{ t('settings.irSection.myCommandsDesc') }}</CardDescription>
+                <CardTitle>{{ t('settings.irSection.libraryTitle') }}</CardTitle>
+                <CardDescription>{{ t('settings.irSection.libraryDesc') }}</CardDescription>
               </CardHeader>
               <CardContent class="space-y-4">
                 <div v-if="irRemotesList.length === 0" class="text-sm text-muted-foreground py-2">
@@ -4727,11 +4691,48 @@ watch(isWindows, () => {
                         <Badge variant="secondary">{{ remote.buttons.length }}</Badge>
                       </div>
                       <div class="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          :aria-label="t('settings.irSection.learnButton')"
+                          :disabled="irLearnState === 'waiting' && irLearnOpenId !== remote.id"
+                          @click="irOpenLearnRow(remote)"
+                        ><Plus class="size-4" /></Button>
                         <Button variant="ghost" size="icon-sm" :aria-label="t('common.rename')" @click="irRenamingRemote = remote.id; irRemoteRenameValue = remote.name"><Pencil class="size-4" /></Button>
                         <Button variant="ghost" size="icon-sm" :aria-label="t('settings.irSection.export')" @click="irExportRemote(remote)"><Download class="size-4" /></Button>
                         <Button variant="ghost" size="icon-sm" :aria-label="t('common.delete')" @click="irDeleteRemote(remote)"><Trash2 class="size-4" /></Button>
                       </div>
                     </template>
+                  </div>
+
+                  <div v-if="irLearnOpenId === remote.id" class="space-y-2 rounded-md bg-muted/40 p-3">
+                    <form class="flex flex-wrap items-center gap-2" @submit.prevent="startIrLearn(remote)">
+                      <Input
+                        v-model="irLearnButtonName"
+                        :placeholder="t('settings.irSection.buttonNamePlaceholder')"
+                        class="h-8 max-w-xs"
+                        :disabled="irLearnState === 'waiting'"
+                      />
+                      <Button v-if="irLearnState !== 'waiting'" type="submit" size="sm" :disabled="irStartingLearn">
+                        <Loader2 v-if="irStartingLearn" class="size-4 mr-2 animate-spin" />
+                        <Radio v-else class="size-4 mr-2" />
+                        {{ t('settings.irSection.startLearn') }}
+                      </Button>
+                      <Button v-else type="button" variant="destructive" size="sm" @click="cancelIrLearn">
+                        <Square class="size-4 mr-2" />
+                        {{ t('settings.irSection.cancelLearn') }}
+                      </Button>
+                    </form>
+                    <div v-if="irLearnState !== 'idle'" class="flex items-center gap-2 text-xs">
+                      <Circle :class="['size-2.5 shrink-0 fill-current', irLearnDotClass(irLearnState)]" />
+                      <span v-if="irLearnState === 'waiting'">{{ t('settings.irSection.stateWaiting') }}</span>
+                      <span v-else-if="irLearnState === 'saved'" class="font-medium">
+                        {{ t('settings.irSection.stateSaved') }}<template v-if="irLearnDetail"> · {{ irLearnDetail }}</template>
+                      </span>
+                      <span v-else-if="irLearnState === 'failed'" class="font-medium text-destructive">
+                        {{ irLearnError || t('settings.irSection.stateFailed') }}
+                      </span>
+                    </div>
                   </div>
 
                   <div v-if="remote.buttons.length > 0" class="grid gap-2 sm:grid-cols-2">
@@ -4769,29 +4770,22 @@ watch(isWindows, () => {
                   </div>
                   <p v-else class="text-xs text-muted-foreground">{{ t('settings.irSection.noButtonsInRemote') }}</p>
                 </div>
-              </CardContent>
-            </Card>
 
-            <!-- Template library (import) -->
-            <Card>
-              <CardHeader>
-                <CardTitle>{{ t('settings.irSection.libraryTitle') }}</CardTitle>
-                <CardDescription>{{ t('settings.irSection.libraryDesc') }}</CardDescription>
-              </CardHeader>
-              <CardContent class="space-y-3">
-                <input
-                  ref="irFileInput"
-                  type="file"
-                  accept=".json,application/json"
-                  class="hidden"
-                  @change="irOnImportFile"
-                />
-                <Button variant="outline" :disabled="irImporting" @click="irTriggerImport">
-                  <Loader2 v-if="irImporting" class="size-4 mr-2 animate-spin" />
-                  <Upload v-else class="size-4 mr-2" />
-                  {{ t('settings.irSection.importPack') }}
-                </Button>
-                <p class="text-xs text-muted-foreground">{{ t('settings.irSection.libraryHint') }}</p>
+                <div class="space-y-2 border-t pt-4">
+                  <input
+                    ref="irFileInput"
+                    type="file"
+                    accept=".json,application/json"
+                    class="hidden"
+                    @change="irOnImportFile"
+                  />
+                  <Button variant="outline" :disabled="irImporting" @click="irTriggerImport">
+                    <Loader2 v-if="irImporting" class="size-4 mr-2 animate-spin" />
+                    <Upload v-else class="size-4 mr-2" />
+                    {{ t('settings.irSection.importPack') }}
+                  </Button>
+                  <p class="text-xs text-muted-foreground">{{ t('settings.irSection.libraryHint') }}</p>
+                </div>
               </CardContent>
             </Card>
 
