@@ -41,6 +41,7 @@ import {
   type VideoEncoderSelfCheckResponse,
   type DeviceList,
   type IrRemote,
+  type IrButton,
   type IrHardwareStatus,
   type IrLearnEvent,
 } from '@/api'
@@ -1841,6 +1842,8 @@ const irRenamingButton = ref<number | null>(null)
 const irButtonRenameValue = ref('')
 const irDeleteRemoteTarget = ref<IrRemote | null>(null)
 const irDeleteButtonTarget = ref<number | null>(null)
+const irSlotEdits = ref<Record<number, number | null>>({})
+const irSavingSlots = ref(false)
 
 const irImporting = ref(false)
 const irFileInput = ref<HTMLInputElement | null>(null)
@@ -2022,6 +2025,7 @@ async function irDeleteRemoteConfirmed() {
       irLearnOpenId.value = null
       irLearnState.value = 'idle'
     }
+    for (const b of remote.buttons) delete irSlotEdits.value[b.id]
     await loadIrRemotes()
   } catch (error) {
     toast.error(error instanceof Error ? error.message : String(error))
@@ -2047,6 +2051,7 @@ async function irDeleteButtonConfirmed() {
   const buttonId = irDeleteButtonTarget.value
   if (buttonId === null) return
   irDeleteButtonTarget.value = null
+  delete irSlotEdits.value[buttonId]
   try {
     await irApi.deleteButton(buttonId)
     await loadIrRemotes()
@@ -2066,12 +2071,43 @@ async function irRenameButtonSubmit() {
   }
 }
 
-async function irSetSlot(buttonId: number, slot: number | null) {
+function irSetSlot(buttonId: number, slot: number | null) {
+  const button = irRemotesList.value.flatMap((r) => r.buttons).find((b) => b.id === buttonId)
+  const saved = button ? button.slot ?? null : null
+  if (slot === saved) delete irSlotEdits.value[buttonId]
+  else irSlotEdits.value[buttonId] = slot
+}
+
+function irRemoteDirtySlots(remote: IrRemote): number {
+  return remote.buttons.filter((b) => b.id in irSlotEdits.value).length
+}
+
+function irEffectiveSlot(button: IrButton): number | null {
+  return irSlotEdits.value[button.id] ?? button.slot ?? null
+}
+
+function irRevertSlotEdits(remote: IrRemote) {
+  for (const b of remote.buttons) delete irSlotEdits.value[b.id]
+}
+
+async function irSaveSlotEdits(remote: IrRemote) {
+  const edits = remote.buttons
+    .filter((b) => b.id in irSlotEdits.value)
+    .map((b) => ({ id: b.id, slot: irSlotEdits.value[b.id] ?? null }))
+  if (edits.length === 0) return
+  irSavingSlots.value = true
   try {
-    await irApi.updateButton(buttonId, { slot })
+    for (const edit of edits) {
+      await irApi.updateButton(edit.id, { slot: edit.slot })
+      delete irSlotEdits.value[edit.id]
+    }
     await loadIrRemotes()
+    toast.success(t('settings.irSection.slotSaved'))
   } catch (error) {
     toast.error(error instanceof Error ? error.message : String(error))
+    await loadIrRemotes()
+  } finally {
+    irSavingSlots.value = false
   }
 }
 
@@ -4769,7 +4805,8 @@ watch(isWindows, () => {
                         </div>
                         <select
                           class="h-7 rounded-md border bg-transparent px-1.5 text-[11px]"
-                          :value="button.slot ?? ''"
+                          :class="{ 'border-primary': irSlotEdits[button.id] !== undefined }"
+                          :value="irEffectiveSlot(button) ?? ''"
                           :aria-label="t('settings.irSection.slotBind')"
                           @change="irSetSlot(button.id, ($event.target as HTMLSelectElement).value === '' ? null : Number(($event.target as HTMLSelectElement).value))"
                         >
@@ -4778,7 +4815,7 @@ watch(isWindows, () => {
                             v-for="slot in 8"
                             :key="slot"
                             :value="slot"
-                            :disabled="remote.buttons.some(b => b.id !== button.id && b.slot === slot)"
+                            :disabled="remote.buttons.some(b => b.id !== button.id && irEffectiveSlot(b) === slot)"
                           >{{ t('settings.irSection.slotN', { n: slot }) }}</option>
                         </select>
                         <Button variant="ghost" size="icon-sm" class="size-7" :aria-label="t('settings.irSection.sendTest')" @click="irSendButton(button.id)"><Send class="size-3.5" /></Button>
@@ -4788,6 +4825,23 @@ watch(isWindows, () => {
                     </div>
                   </div>
                   <p v-else class="text-xs text-muted-foreground">{{ t('settings.irSection.noButtonsInRemote') }}</p>
+
+                  <div
+                    v-if="irRemoteDirtySlots(remote) > 0"
+                    class="flex flex-wrap items-center justify-end gap-2 border-t pt-3"
+                  >
+                    <span class="text-xs text-muted-foreground">
+                      {{ t('settings.irSection.slotPending', { n: irRemoteDirtySlots(remote) }) }}
+                    </span>
+                    <Button variant="ghost" size="sm" :disabled="irSavingSlots" @click="irRevertSlotEdits(remote)">
+                      {{ t('settings.irSection.slotRevert') }}
+                    </Button>
+                    <Button size="sm" :disabled="irSavingSlots" @click="irSaveSlotEdits(remote)">
+                      <Loader2 v-if="irSavingSlots" class="size-4 mr-2 animate-spin" />
+                      <Save v-else class="size-4 mr-2" />
+                      {{ t('settings.irSection.slotSave') }}
+                    </Button>
+                  </div>
                 </div>
 
                 <div class="space-y-2 border-t pt-4">
