@@ -170,7 +170,7 @@ onMounted(load)
             variant="outline"
             size="icon"
             class="size-9 text-xs font-medium"
-            :class="slot === activeSlot && 'border-primary ring-1 ring-primary'"
+            :class="slot === activeSlot && '[outline:2px_solid_var(--primary)]! [outline-offset:-2px]!'"
             :disabled="!slotButtons[slot] || unavailable || sendingSlot !== null"
             :title="slotButtons[slot]
               ? `${slot}: ${slotButtons[slot].name}`

@@ -219,7 +219,7 @@ onMounted(load)
             variant="outline"
             size="sm"
             class="h-auto min-h-12 flex-col gap-0.5 px-1 py-1.5 text-xs"
-            :class="index === activeIndex && 'border-primary ring-1 ring-primary'"
+            :class="index === activeIndex && '[outline:2px_solid_var(--primary)]! [outline-offset:-2px]!'"
             :disabled="unavailable || sendingId !== null"
             :title="unavailable ? t('ir.unavailable') : undefined"
             @click="activeIndex = index; send(button.id)"
