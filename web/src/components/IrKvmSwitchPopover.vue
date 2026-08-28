@@ -153,7 +153,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="relative rounded-md border bg-popover shadow-md p-3 space-y-3" :style="{ opacity: pinned ? overlayOpacity / 100 : 1 }">
+  <div class="relative p-3 space-y-3">
     <Spinner v-if="loading" class="mx-auto my-4 size-5" />
 
     <template v-else>
@@ -166,7 +166,7 @@ onMounted(load)
       </div>
 
       <template v-else>
-        <div class="flex items-center justify-center gap-1 flex-wrap">
+        <div class="flex items-center justify-center gap-1 flex-wrap" :style="{ opacity: pinned ? overlayOpacity / 100 : 1 }">
           <Button
             variant="outline"
             size="icon"
