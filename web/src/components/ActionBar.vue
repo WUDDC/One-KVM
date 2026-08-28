@@ -411,7 +411,7 @@ const hasRightOverflow = computed(() => {
                 <span v-if="visibleSet.get('ir') === 'label'">{{ t('actionbar.kvmSwitch') }}</span>
               </Button>
             </PopoverTrigger>
-            <PopoverContent class="w-[min(680px,95vw)] p-0" align="end">
+            <PopoverContent class="w-[min(680px,95vw)] bg-transparent border-0! shadow-none! p-0" align="end">
               <IrKvmSwitchPopover v-if="kvmOpen" @close="kvmOpen = false" />
             </PopoverContent>
           </Popover>

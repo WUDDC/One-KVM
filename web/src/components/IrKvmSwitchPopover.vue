@@ -153,7 +153,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-3 space-y-3" :style="{ opacity: pinned ? overlayOpacity / 100 : 1 }">
+  <div class="relative rounded-md border bg-popover shadow-md p-3 space-y-3" :style="{ opacity: pinned ? overlayOpacity / 100 : 1 }">
     <Spinner v-if="loading" class="mx-auto my-4 size-5" />
 
     <template v-else>
