@@ -79,11 +79,11 @@ onMounted(load)
     <Spinner v-if="loading" class="mx-auto my-6 size-5" />
 
     <template v-else>
-      <div v-if="unavailable" class="text-xs text-muted-foreground text-center py-4">
+      <div v-if="unavailable" class="text-[11px] text-muted-foreground text-center py-1">
         {{ t('ir.unavailable') }}
       </div>
 
-      <div v-else-if="remotes.length === 0" class="text-xs text-muted-foreground text-center py-4 space-y-2">
+      <div v-if="remotes.length === 0" class="text-xs text-muted-foreground text-center py-4 space-y-2">
         <p>{{ t('ir.noRemotesHint') }}</p>
       </div>
 
@@ -98,7 +98,8 @@ onMounted(load)
           variant="outline"
           size="sm"
           class="h-auto min-h-12 flex-col gap-0.5 px-1 py-1.5 text-xs"
-          :disabled="sendingId !== null"
+          :disabled="unavailable || sendingId !== null"
+          :title="unavailable ? t('ir.unavailable') : undefined"
           @click="send(button.id)"
         >
           <Spinner v-if="sendingId === button.id" class="size-3.5" />
