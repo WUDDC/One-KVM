@@ -21,6 +21,7 @@ const remotes = [
   {
     id: 1,
     name: '客厅电视',
+    is_kvm: true,
     buttons: [
       { id: 1, remote_id: 1, name: '电源', proto: 'nec', scancode: 40186, has_raw: false, carrier: 38000, slot: 1 },
       { id: 2, remote_id: 1, name: '音量+', proto: 'nec', scancode: 40218, has_raw: false, carrier: 38000, slot: null },
@@ -30,6 +31,7 @@ const remotes = [
   {
     id: 2,
     name: '机顶盒',
+    is_kvm: false,
     buttons: [
       { id: 4, remote_id: 2, name: '电源', proto: 'nec', scancode: 12345, has_raw: false, carrier: 38000, slot: 2 },
       { id: 5, remote_id: 2, name: 'OK', proto: 'nec', scancode: 12390, has_raw: false, carrier: 38000, slot: null },
@@ -263,9 +265,17 @@ async function handle(req, res) {
     if (!name) return json(res, 400, { message: 'name required' })
     const existing = remotes.find((r) => r.name === name)
     if (existing) return json(res, 409, { message: `remote '${name}' already exists` })
-    const remote = { id: nextRemoteId++, name, buttons: [] }
+    const remote = { id: nextRemoteId++, name, is_kvm: false, buttons: [] }
     remotes.push(remote)
     return json(res, 200, { id: remote.id, name })
+  }
+
+  m = path.match(/^\/api\/ir\/remotes\/(\d+)\/kvm$/)
+  if (m && method === 'POST') {
+    const id = Number(m[1])
+    if (!remotes.some((r) => r.id === id)) return json(res, 404, { message: 'not found' })
+    for (const r of remotes) r.is_kvm = r.id === id
+    return json(res, 200, { success: true })
   }
 
   m = path.match(/^\/api\/ir\/remotes\/(\d+)$/)
@@ -378,7 +388,11 @@ async function handle(req, res) {
     if (method === 'PATCH') {
       const body = await readBody(req)
       if (typeof body.name === 'string' && body.name.trim()) button.name = body.name.trim()
-      if (body.slot !== undefined) button.slot = body.slot
+      if (body.slot !== undefined) {
+        const owner = remotes.find((r) => r.buttons.includes(button))
+        if (!owner?.is_kvm) return json(res, 400, { message: 'only the KVM-switch remote can bind slots' })
+        button.slot = body.slot
+      }
       return json(res, 200, { success: true })
     }
     if (method === 'DELETE') {

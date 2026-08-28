@@ -21,6 +21,7 @@ pub struct IrButtonRecord {
 pub struct IrRemoteRecord {
     pub id: i64,
     pub name: String,
+    pub is_kvm: bool,
     pub buttons: Vec<IrButtonRecord>,
 }
 
@@ -30,12 +31,26 @@ pub async fn ensure_schema(pool: &Pool<Sqlite>) -> Result<()> {
         CREATE TABLE IF NOT EXISTS ir_remotes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
+            is_kvm INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL
         )
         "#,
     )
     .execute(pool)
     .await?;
+
+    // Migration for tables created before the is_kvm column existed.
+    if let Err(e) = sqlx::query(
+        "ALTER TABLE ir_remotes ADD COLUMN is_kvm INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(pool)
+    .await
+    {
+        let msg = e.to_string();
+        if !msg.contains("duplicate column name") {
+            return Err(AppError::Persistence(msg));
+        }
+    }
 
     sqlx::query(
         r#"
@@ -80,7 +95,7 @@ pub async fn ensure_remote_exists(pool: &Pool<Sqlite>, remote_id: i64) -> Result
 }
 
 pub async fn list_remotes(pool: &Pool<Sqlite>) -> Result<Vec<IrRemoteRecord>> {
-    let remote_rows = sqlx::query("SELECT id, name FROM ir_remotes ORDER BY id")
+    let remote_rows = sqlx::query("SELECT id, name, is_kvm FROM ir_remotes ORDER BY id")
         .fetch_all(pool)
         .await?;
 
@@ -113,12 +128,32 @@ pub async fn list_remotes(pool: &Pool<Sqlite>) -> Result<Vec<IrRemoteRecord>> {
             Ok(IrRemoteRecord {
                 id,
                 name: row.try_get("name")?,
+                is_kvm: row.try_get::<i64, _>("is_kvm")? != 0,
                 buttons: buttons_by_remote.remove(&id).unwrap_or_default(),
             })
         })
         .collect::<Result<Vec<_>>>()?;
 
     Ok(remotes)
+}
+
+/// Mark exactly one remote as the KVM-switch remote; clears the flag on all
+/// others so only one remote can be active at a time.
+pub async fn set_kvm_remote(pool: &Pool<Sqlite>, id: i64) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("UPDATE ir_remotes SET is_kvm = 0 WHERE is_kvm = 1")
+        .execute(&mut *tx)
+        .await?;
+    let result = sqlx::query("UPDATE ir_remotes SET is_kvm = 1 WHERE id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    if result.rows_affected() == 0 {
+        tx.rollback().await.ok();
+        return Err(AppError::NotFound(format!("IR remote {id} not found")));
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn create_remote(pool: &Pool<Sqlite>, name: &str) -> Result<i64> {
@@ -244,6 +279,19 @@ pub async fn update_button(
             .await?;
     }
     if let Some(slot) = slot {
+        // Only buttons of the current KVM-switch remote may bind slots.
+        let kvm: Option<i64> = sqlx::query_scalar(
+            "SELECT r.id FROM ir_buttons b JOIN ir_remotes r ON r.id = b.remote_id \
+             WHERE b.id = ? AND r.is_kvm = 1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+        if kvm.is_none() {
+            return Err(AppError::BadRequest(
+                "only the KVM-switch remote can bind slots".to_string(),
+            ));
+        }
         sqlx::query("UPDATE ir_buttons SET slot = ? WHERE id = ?")
             .bind(slot)
             .bind(id)

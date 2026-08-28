@@ -339,6 +339,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             .route("/ir/remotes", post(handlers::ir_create_remote))
             .route("/ir/remotes/{id}", patch(handlers::ir_rename_remote))
             .route("/ir/remotes/{id}", delete(handlers::ir_delete_remote))
+            .route("/ir/remotes/{id}/kvm", post(handlers::ir_set_kvm_remote))
             .route("/ir/remotes/{id}/export", get(handlers::ir_export_remote))
             .route("/ir/learn", post(handlers::ir_learn))
             .route("/ir/learn/cancel", post(handlers::ir_learn_cancel))

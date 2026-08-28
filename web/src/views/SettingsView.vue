@@ -154,6 +154,7 @@ import {
   Download,
   Pencil,
   Circle,
+  SquareStack,
 } from 'lucide-vue-next'
 
 const { t, te } = useI18n()
@@ -2048,6 +2049,20 @@ async function irDeleteRemoteConfirmed() {
     }
     for (const b of remote.buttons) delete irSlotEdits.value[b.id]
     await loadIrRemotes()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : String(error))
+  }
+}
+
+async function irSetKvmRemote(remote: IrRemote) {
+  try {
+    await irApi.setKvm(remote.id)
+    // Other remotes lose their slot-binding rights; staged edits become moot.
+    for (const r of irRemotesList.value) {
+      if (r.id !== remote.id) for (const b of r.buttons) delete irSlotEdits.value[b.id]
+    }
+    await loadIrRemotes()
+    toast.success(t('settings.irSection.kvmSetDone', { name: remote.name }))
   } catch (error) {
     toast.error(error instanceof Error ? error.message : String(error))
   }
@@ -4773,6 +4788,7 @@ watch(isWindows, () => {
                         <Radio class="size-4 shrink-0 text-muted-foreground" />
                         <span class="truncate text-sm font-medium">{{ remote.name }}</span>
                         <Badge variant="secondary">{{ remote.buttons.length }}</Badge>
+                        <Badge v-if="remote.is_kvm" class="h-4 text-[10px] px-1.5">{{ t('settings.irSection.kvmActive') }}</Badge>
                         <span
                           v-if="irRemoteDirtySlots(remote) > 0"
                           class="size-2 shrink-0 rounded-full bg-amber-500"
@@ -4780,6 +4796,14 @@ watch(isWindows, () => {
                         />
                       </div>
                       <div class="flex items-center gap-1 shrink-0" @click.stop>
+                        <Button
+                          v-if="!remote.is_kvm"
+                          variant="ghost"
+                          size="sm"
+                          class="h-7 text-xs text-muted-foreground"
+                          :title="t('settings.irSection.kvmMakeActive')"
+                          @click="irSetKvmRemote(remote)"
+                        ><SquareStack class="size-3.5 mr-1" />{{ t('settings.irSection.kvmMakeActive') }}</Button>
                         <Button
                           variant="ghost"
                           size="icon-sm"
@@ -4848,6 +4872,8 @@ watch(isWindows, () => {
                           :class="{ 'border-primary': irSlotEdits[button.id] !== undefined }"
                           :value="irEffectiveSlot(button) ?? ''"
                           :aria-label="t('settings.irSection.slotBind')"
+                          :disabled="!remote.is_kvm"
+                          :title="remote.is_kvm ? undefined : t('settings.irSection.slotOnlyKvm')"
                           @change="irSetSlot(button.id, ($event.target as HTMLSelectElement).value === '' ? null : Number(($event.target as HTMLSelectElement).value))"
                         >
                           <option value="">{{ t('settings.irSection.slotNone') }}</option>

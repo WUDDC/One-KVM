@@ -95,6 +95,8 @@ async function load() {
     ])
     const map: Record<number, { id: number; name: string }> = {}
     for (const remote of remoteResponse.remotes) {
+      // Only the single KVM-switch remote drives the slot buttons.
+      if (!remote.is_kvm) continue
       for (const button of remote.buttons) {
         if (button.slot !== null && button.slot >= 1 && button.slot <= SLOT_COUNT) {
           map[button.slot] = { id: button.id, name: button.name }

@@ -968,6 +968,7 @@ export interface IrButton {
 export interface IrRemote {
   id: number
   name: string
+  is_kvm: boolean
   buttons: IrButton[]
 }
 
@@ -1022,6 +1023,9 @@ export const irApi = {
 
   deleteRemote: (id: number) =>
     request<{ success: boolean }>('/ir/remotes/' + id, { method: 'DELETE' }),
+
+  setKvm: (id: number) =>
+    request<{ success: boolean }>(`/ir/remotes/${id}/kvm`, { method: 'POST' }),
 
   exportRemoteUrl: (id: number) => '/api/ir/remotes/' + id + '/export',
 

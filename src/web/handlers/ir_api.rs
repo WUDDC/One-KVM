@@ -110,6 +110,18 @@ pub async fn ir_delete_remote(
     }))
 }
 
+/// Mark this remote as the single active KVM-switch remote.
+pub async fn ir_set_kvm_remote(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Result<Json<LoginResponse>> {
+    store::set_kvm_remote(state.db.pool(), id).await?;
+    Ok(Json(LoginResponse {
+        success: true,
+        message: Some("KVM switch remote updated".to_string()),
+    }))
+}
+
 pub async fn ir_learn(
     State(state): State<Arc<AppState>>,
     Json(req): Json<IrLearnRequest>,
