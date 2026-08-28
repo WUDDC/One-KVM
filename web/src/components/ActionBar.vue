@@ -107,9 +107,11 @@ const msdDialogOpen = ref(false)
 
 const mobileAtxOpen = ref(false)
 const mobileIrOpen = ref(false)
+const mobileKvmOpen = ref(false)
 const mobilePasteOpen = ref(false)
 const mobileAtxOpenTime = ref(0)
 const mobileIrOpenTime = ref(0)
+const mobileKvmOpenTime = ref(0)
 const mobilePasteOpenTime = ref(0)
 
 const OPEN_GUARD_MS = 350
@@ -134,6 +136,11 @@ const openMobileAtx = () => openFromOverflow(() => {
 const openMobileIr = () => openFromOverflow(() => {
   mobileIrOpen.value = true
   mobileIrOpenTime.value = Date.now()
+})
+
+const openMobileKvm = () => openFromOverflow(() => {
+  mobileKvmOpen.value = true
+  mobileKvmOpenTime.value = Date.now()
 })
 
 const openMobilePaste = () => openFromOverflow(() => {
@@ -404,7 +411,7 @@ const hasRightOverflow = computed(() => {
                 <span v-if="visibleSet.get('ir') === 'label'">{{ t('actionbar.kvmSwitch') }}</span>
               </Button>
             </PopoverTrigger>
-            <PopoverContent class="w-[min(460px,90vw)] p-0" align="end">
+            <PopoverContent class="w-[min(640px,95vw)] p-0" align="end">
               <IrKvmSwitchPopover v-if="kvmOpen" @close="kvmOpen = false" />
             </PopoverContent>
           </Popover>
@@ -541,6 +548,12 @@ const hasRightOverflow = computed(() => {
               {{ t('actionbar.irRemote') }}
             </DropdownMenuItem>
 
+            <!-- KVM Switch -->
+            <DropdownMenuItem v-if="!isVisible('ir')" @click="openMobileKvm">
+              <SquareStack class="size-4 mr-2" />
+              {{ t('actionbar.kvmSwitch') }}
+            </DropdownMenuItem>
+
             <!-- Paste -->
             <DropdownMenuItem v-if="showPasteText && !isVisible('paste')" @click="openMobilePaste">
               <ClipboardPaste class="size-4 mr-2" />
@@ -628,6 +641,23 @@ const hasRightOverflow = computed(() => {
         <SheetTitle>{{ t('actionbar.irRemote') }}</SheetTitle>
       </SheetHeader>
       <IrRemotePopover v-if="mobileIrOpen" />
+    </SheetContent>
+  </Sheet>
+
+  <!-- Mobile KVM Switch Sheet — used when KVM Switch is opened from the overflow menu.
+       The inline KVM Popover lives inside the isVisible('ir') branch and is unmounted
+       on small screens, so a Sheet (rendered outside that branch) carries the content. -->
+  <Sheet v-model:open="mobileKvmOpen">
+    <SheetContent
+      side="bottom"
+      class="max-h-[90dvh] overflow-y-auto"
+      @pointer-down-outside="(e) => guardOutside(mobileKvmOpenTime, e)"
+      @interact-outside="(e) => guardOutside(mobileKvmOpenTime, e)"
+    >
+      <SheetHeader class="mb-2">
+        <SheetTitle>{{ t('actionbar.kvmSwitch') }}</SheetTitle>
+      </SheetHeader>
+      <IrKvmSwitchPopover v-if="mobileKvmOpen" @close="mobileKvmOpen = false" />
     </SheetContent>
   </Sheet>
 

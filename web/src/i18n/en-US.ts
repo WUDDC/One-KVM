@@ -226,6 +226,7 @@ export default {
     noButtons: 'No buttons in this remote',
     unavailable: 'No IR hardware detected',
     manageHint: 'Manage IR remotes',
+    overlayOpacity: 'Popover opacity',
   },
 
   atx: {

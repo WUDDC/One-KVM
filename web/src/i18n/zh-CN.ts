@@ -226,6 +226,7 @@ export default {
     noButtons: '该遥控暂无按键',
     unavailable: '未检测到红外收发硬件',
     manageHint: '管理红外遥控',
+    overlayOpacity: '弹窗透明度',
   },
 
   atx: {

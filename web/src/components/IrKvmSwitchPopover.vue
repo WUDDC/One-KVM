@@ -12,6 +12,7 @@ const { t } = useI18n()
 const emit = defineEmits<{ close: [] }>()
 
 const pinned = ref(false)
+const overlayOpacity = ref(100)
 
 const SLOT_COUNT = 8
 
@@ -152,7 +153,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-3 space-y-3">
+  <div class="p-3 space-y-3" :style="{ opacity: pinned ? overlayOpacity / 100 : 1 }">
     <Spinner v-if="loading" class="mx-auto my-4 size-5" />
 
     <template v-else>
@@ -234,6 +235,19 @@ onMounted(load)
             <Pin v-if="!pinned" class="size-4" />
             <PinOff v-else class="size-4" />
           </Button>
+        </div>
+
+        <div v-if="pinned" class="flex items-center gap-2">
+          <span class="text-xs text-muted-foreground shrink-0">{{ t('ir.overlayOpacity') }}</span>
+          <input
+            type="range"
+            min="30"
+            max="100"
+            v-model.number="overlayOpacity"
+            class="flex-1 accent-primary"
+            :aria-label="t('ir.overlayOpacity')"
+          />
+          <span class="text-xs text-muted-foreground w-9 text-right shrink-0">{{ overlayOpacity }}%</span>
         </div>
       </template>
     </template>

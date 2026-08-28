@@ -13,11 +13,16 @@ use super::encoder;
 use super::rx;
 use crate::config::IrConfig;
 
+// From include/uapi/linux/lirc.h (asm-generic ioctl encoding, arm64).
+// LIRC_GET_FEATURES = _IOR('i', 0x00, __u32), LIRC_SET_SEND_MODE =
+// _IOW('i', 0x11, __u32), LIRC_SET_SEND_CARRIER = _IOW('i', 0x13, __u32).
+// Capability bits: LIRC_CAN_SEND_PULSE = 0x2 (the only TX bit kernel TX
+// devices advertise), LIRC_CAN_SET_SEND_CARRIER = 0x100.
 const LIRC_MODE_SCANCODE: libc::c_uint = 0x0000_0008;
-const LIRC_CAN_SEND_SCANCODE: libc::c_uint = 0x0000_0008;
-const LIRC_CAN_SET_SEND_CARRIER: libc::c_uint = 0x0000_1000;
-const LIRC_GET_FEATURES: libc::c_ulong = 0x4004_6900;
-const LIRC_SET_SEND_MODE: libc::c_ulong = 0x4004_6909;
+const LIRC_CAN_SEND_PULSE: libc::c_uint = 0x0000_0002;
+const LIRC_CAN_SET_SEND_CARRIER: libc::c_uint = 0x0000_0100;
+const LIRC_GET_FEATURES: libc::c_ulong = 0x8004_6900;
+const LIRC_SET_SEND_MODE: libc::c_ulong = 0x4004_6911;
 const LIRC_SET_SEND_CARRIER: libc::c_ulong = 0x4004_6913;
 
 /// `struct lirc_scancode` from `include/uapi/linux/lirc.h` (24 bytes).
@@ -207,32 +212,60 @@ const CARRIER_PERIOD_US: f64 = 1_000_000.0 / 38_000.0;
 const DUTY_MARK_RATIO: f64 = 1.0 / 3.0;
 
 /// LIRC raw trains are mark,space,mark,space... marks are modulated onto the
-/// carrier; spaces hold the line low.
-fn modulate_raw(mut write: impl FnMut(bool), pulses: &[u32], carrier: i64) {
+/// carrier; spaces hold the line low. The writer may fail (GPIO ioctls); on
+/// the first error modulation stops immediately, the line is parked low and
+/// the error is propagated.
+fn modulate_raw(
+    mut write: impl FnMut(bool) -> Result<()>,
+    pulses: &[u32],
+    carrier: i64,
+) -> Result<()> {
     let (period, mark_us) = carrier_timing(carrier);
-    for (index, &duration) in pulses.iter().enumerate() {
+    let mut result = Ok(());
+    'modulate: for (index, &duration) in pulses.iter().enumerate() {
         let mut remaining = duration as f64;
         if index % 2 == 0 {
             while remaining >= period {
-                write(true);
+                if let Err(e) = write(true) {
+                    result = Err(e);
+                    break 'modulate;
+                }
                 spin_us(mark_us);
-                write(false);
+                if let Err(e) = write(false) {
+                    result = Err(e);
+                    break 'modulate;
+                }
                 spin_us(period - mark_us);
                 remaining -= period;
             }
             if remaining > 0.5 {
                 let on = (remaining * DUTY_MARK_RATIO).min(remaining);
-                write(true);
+                if let Err(e) = write(true) {
+                    result = Err(e);
+                    break 'modulate;
+                }
                 spin_us(on);
-                write(false);
+                if let Err(e) = write(false) {
+                    result = Err(e);
+                    break 'modulate;
+                }
                 spin_us(remaining - on);
             }
         } else {
-            write(false);
+            if let Err(e) = write(false) {
+                result = Err(e);
+                break 'modulate;
+            }
             spin_us(remaining);
         }
     }
-    write(false);
+    // Always park the line low, even after a failed write mid-train.
+    if let Err(e) = write(false) {
+        if result.is_ok() {
+            result = Err(e);
+        }
+    }
+    result
 }
 
 fn carrier_timing(carrier: i64) -> (f64, f64) {
@@ -246,8 +279,15 @@ fn carrier_timing(carrier: i64) -> (f64, f64) {
 
 fn modulate_mmap(m: &MmapGpio, pulses: &[u32], carrier: i64) -> Result<()> {
     m.set_output(true);
-    modulate_raw(|high| m.write(high), pulses, carrier);
-    Ok(())
+    // Register writes cannot fail; wrap them in the Result-based writer.
+    modulate_raw(
+        |high| {
+            m.write(high);
+            Ok(())
+        },
+        pulses,
+        carrier,
+    )
 }
 
 fn modulate_ioctl(line: &gpio_cdev::LineHandle, pulses: &[u32], carrier: i64) -> Result<()> {
@@ -256,8 +296,7 @@ fn modulate_ioctl(line: &gpio_cdev::LineHandle, pulses: &[u32], carrier: i64) ->
             .map_err(|e| AppError::Internal(format!("GPIO write failed: {e}")))
     };
     set(false)?;
-    modulate_raw(|high| set(high).expect("gpio write"), pulses, carrier);
-    Ok(())
+    modulate_raw(set, pulses, carrier)
 }
 
 #[inline]
@@ -294,6 +333,24 @@ impl MmapGpio {
 
         let page = base & !0xfff;
         let offset = (base & 0xfff) as usize;
+        if offset % std::mem::size_of::<u32>() != 0
+            || (oen_offset as usize) % std::mem::size_of::<u32>() != 0
+            || (out_offset as usize) % std::mem::size_of::<u32>() != 0
+        {
+            return Err(AppError::Internal(
+                "mmap GPIO offsets must be 4-byte aligned".to_string(),
+            ));
+        }
+        // The mapping covers a single 4 KiB page; refuse offsets whose OEN or
+        // OUT register extends past its end (a write there would clobber
+        // neighbouring registers via /dev/mem).
+        let last =
+            offset + std::cmp::max(oen_offset as usize, out_offset as usize) + std::mem::size_of::<u32>();
+        if last > 0x1000 {
+            return Err(AppError::Internal(format!(
+                "mmap GPIO registers extend past the 4 KiB page (need 0x{last:x} bytes)"
+            )));
+        }
         let path = std::ffi::CString::new("/dev/mem").unwrap();
         let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR | libc::O_SYNC) };
         if fd < 0 {
