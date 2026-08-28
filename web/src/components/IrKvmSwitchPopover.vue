@@ -199,13 +199,13 @@ onMounted(load)
           ><ChevronRight class="size-4" /></Button>
         </div>
 
-        <div class="grid grid-cols-3 gap-1.5">
+        <div class="flex flex-wrap justify-center gap-1.5">
           <Button
             v-for="(button, index) in buttons"
             :key="button.id"
             variant="outline"
             size="sm"
-            class="h-auto min-h-12 flex-col gap-0.5 px-1 py-1.5 text-xs"
+            class="h-auto w-20 min-h-12 flex-col gap-0.5 px-1 py-1.5 text-xs"
             :class="index === activeIndex && '[outline:2px_solid_var(--primary)]! [outline-offset:-2px]!'"
             :disabled="unavailable || sendingId !== null"
             :title="unavailable ? t('ir.unavailable') : undefined"
