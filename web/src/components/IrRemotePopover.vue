@@ -150,11 +150,11 @@ onMounted(load)
       </div>
 
       <template v-else-if="selectedRemote">
-        <div class="flex items-center justify-center gap-2">
+        <div class="flex items-center justify-center gap-1 flex-nowrap">
           <Button
             variant="outline"
             size="sm"
-            class="h-7 text-xs"
+            class="h-8 shrink-0 px-2 text-xs"
             :disabled="unavailable || selectedRemote.buttons.length === 0 || sendingId !== null"
             :aria-label="t('ir.prevButton')"
             @click="cycleButton(-1)"
@@ -162,7 +162,7 @@ onMounted(load)
           <Button
             :variant="autoCycle ? 'default' : 'outline'"
             size="sm"
-            class="h-7 text-xs"
+            class="h-8 shrink-0 px-2 text-xs"
             :disabled="unavailable || selectedRemote.buttons.length === 0"
             :aria-label="t('ir.autoCycle')"
             @click="toggleAutoCycle"
@@ -171,20 +171,22 @@ onMounted(load)
             <Play v-else class="size-3 mr-0.5" />
             {{ t('ir.autoCycle') }}
           </Button>
-          <NativeSelect
-            v-model="cycleIntervalMs"
-            class="h-7 w-auto text-xs"
-            :aria-label="t('ir.autoCycleInterval')"
-          >
-            <option :value="500">0.5s</option>
-            <option :value="1000">1s</option>
-            <option :value="2000">2s</option>
-            <option :value="5000">5s</option>
-          </NativeSelect>
+          <div class="w-16 shrink-0">
+            <NativeSelect
+              v-model="cycleIntervalMs"
+              class="h-8 text-xs"
+              :aria-label="t('ir.autoCycleInterval')"
+            >
+              <option :value="500">0.5s</option>
+              <option :value="1000">1s</option>
+              <option :value="2000">2s</option>
+              <option :value="5000">5s</option>
+            </NativeSelect>
+          </div>
           <Button
             variant="outline"
             size="sm"
-            class="h-7 text-xs"
+            class="h-8 shrink-0 px-2 text-xs"
             :disabled="unavailable || selectedRemote.buttons.length === 0 || sendingId !== null"
             :aria-label="t('ir.nextButton')"
             @click="cycleButton(1)"

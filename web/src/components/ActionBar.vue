@@ -386,7 +386,7 @@ const hasRightOverflow = computed(() => {
                 <span v-if="visibleSet.get('ir') === 'label'">{{ t('actionbar.irRemote') }}</span>
               </Button>
             </PopoverTrigger>
-            <PopoverContent class="w-[min(280px,90vw)] p-0" align="start">
+            <PopoverContent class="w-[min(360px,90vw)] p-0" align="start">
               <IrRemotePopover v-if="irOpen" />
             </PopoverContent>
           </Popover>
