@@ -153,19 +153,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="relative p-3 space-y-3" :style="{ opacity: pinned ? overlayOpacity / 100 : 1 }">
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      class="absolute top-1.5 left-1.5 z-10"
-      :class="pinned && 'text-primary'"
-      :aria-label="pinned ? t('ir.unpin') : t('ir.pin')"
-      :title="pinned ? t('ir.unpin') : t('ir.pin')"
-      @click="pinned = !pinned"
-    >
-      <Pin v-if="!pinned" class="size-4" />
-      <PinOff v-else class="size-4" />
-    </Button>
+  <div class="p-3 space-y-3" :style="{ opacity: pinned ? overlayOpacity / 100 : 1 }">
     <Spinner v-if="loading" class="mx-auto my-4 size-5" />
 
     <template v-else>
@@ -178,7 +166,25 @@ onMounted(load)
       </div>
 
       <template v-else>
-        <div class="flex items-center justify-center gap-1 flex-wrap pl-9">
+        <div class="flex items-center justify-center gap-1 flex-wrap">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            :class="pinned && 'text-primary'"
+            :aria-label="pinned ? t('ir.unpin') : t('ir.pin')"
+            :title="pinned ? t('ir.unpin') : t('ir.pin')"
+            @click="pinned = !pinned"
+          >
+            <Pin v-if="!pinned" class="size-4" />
+            <PinOff v-else class="size-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            :disabled="unavailable || boundSlots.length === 0 || sendingSlot !== null"
+            :aria-label="t('ir.prevButton')"
+            @click="cycleSlot(-1)"
+          ><ChevronLeft class="size-4" /></Button>
           <Button
             v-for="slot in 8"
             :key="slot"
@@ -195,13 +201,6 @@ onMounted(load)
             <Spinner v-if="sendingSlot === slot" class="size-3.5" />
             <span v-else>{{ slot }}</span>
           </Button>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            :disabled="unavailable || boundSlots.length === 0 || sendingSlot !== null"
-            :aria-label="t('ir.prevButton')"
-            @click="cycleSlot(-1)"
-          ><ChevronLeft class="size-4" /></Button>
           <Button
             variant="outline"
             size="icon-sm"
