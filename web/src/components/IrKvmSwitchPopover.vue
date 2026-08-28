@@ -168,8 +168,9 @@ onMounted(load)
       <template v-else>
         <div class="flex items-center justify-center gap-1 flex-wrap">
           <Button
-            variant="ghost"
-            size="icon-sm"
+            variant="outline"
+            size="icon"
+            class="size-9 shrink-0"
             :class="pinned && 'text-primary'"
             :aria-label="pinned ? t('ir.unpin') : t('ir.pin')"
             :title="pinned ? t('ir.unpin') : t('ir.pin')"
@@ -180,7 +181,8 @@ onMounted(load)
           </Button>
           <Button
             variant="outline"
-            size="icon-sm"
+            size="icon"
+            class="size-9 shrink-0"
             :disabled="unavailable || boundSlots.length === 0 || sendingSlot !== null"
             :aria-label="t('ir.prevButton')"
             @click="cycleSlot(-1)"
@@ -203,7 +205,8 @@ onMounted(load)
           </Button>
           <Button
             variant="outline"
-            size="icon-sm"
+            size="icon"
+            class="size-9 shrink-0"
             :disabled="unavailable || boundSlots.length === 0 || sendingSlot !== null"
             :aria-label="t('ir.nextButton')"
             @click="cycleSlot(1)"
