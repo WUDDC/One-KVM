@@ -19,8 +19,8 @@ const unavailable = ref(false)
 const sendingId = ref<number | null>(null)
 const activeIndex = ref(-1)
 const autoCycle = ref(false)
-const cycleIntervalMs = ref(1000)
-const intervalInput = ref('1')
+const cycleIntervalMs = ref(5000)
+const intervalInput = ref('5')
 let cycleTimer: number | null = null
 
 /// Snap the interval to 0.5s steps clamped to [1, 99] seconds
