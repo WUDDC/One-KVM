@@ -178,7 +178,7 @@ onMounted(load)
       </div>
 
       <template v-else>
-        <div class="flex items-center justify-center gap-1.5 flex-wrap pl-9">
+        <div class="flex items-center justify-center gap-1 flex-wrap pl-9">
           <Button
             v-for="slot in 8"
             :key="slot"
@@ -221,7 +221,7 @@ onMounted(load)
             <Play v-else class="size-3.5 mr-1" />
             {{ t('ir.cycleSwitch') }}
           </Button>
-          <div class="flex w-20 items-center gap-0.5">
+          <div class="flex w-14 items-center gap-0.5">
             <Input
               v-model="intervalInput"
               type="number"
@@ -229,7 +229,7 @@ onMounted(load)
               max="99"
               step="0.5"
               inputmode="decimal"
-              class="h-9 text-xs text-center"
+              class="h-9 text-xs text-center px-1"
               :aria-label="t('ir.autoCycleInterval')"
               @blur="normalizeInterval"
               @keyup.enter="($event.target as HTMLInputElement).blur()"
