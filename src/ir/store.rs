@@ -138,16 +138,12 @@ pub async fn list_remotes(pool: &Pool<Sqlite>) -> Result<Vec<IrRemoteRecord>> {
 }
 
 /// Mark exactly one remote as the KVM-switch remote; clears the flag on all
-/// others so only one remote can be active at a time.
+/// others so only one remote can be active at a time. Slot bindings of other
+/// remotes are kept — they simply stop driving the KVM-switch popover until
+/// their remote is made active again.
 pub async fn set_kvm_remote(pool: &Pool<Sqlite>, id: i64) -> Result<()> {
     let mut tx = pool.begin().await?;
     sqlx::query("UPDATE ir_remotes SET is_kvm = 0 WHERE is_kvm = 1")
-        .execute(&mut *tx)
-        .await?;
-    // Slots are exclusive to the KVM-switch remote: drop every slot binding
-    // of other remotes so stale slots cannot linger after the switch.
-    sqlx::query("UPDATE ir_buttons SET slot = NULL WHERE remote_id != ? AND slot IS NOT NULL")
-        .bind(id)
         .execute(&mut *tx)
         .await?;
     let result = sqlx::query("UPDATE ir_remotes SET is_kvm = 1 WHERE id = ?")
