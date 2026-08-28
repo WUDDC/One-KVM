@@ -219,6 +219,7 @@ export default {
     autoCycleInterval: 'Auto-cycle interval',
     cycleSwitch: 'Cycle',
     slotEmpty: 'No button bound to this slot',
+    noKvmRemote: 'No remote is set as KVM Switch yet. Mark one with "Set as KVM Switch" in the IR remote settings.',
     noSlotBound: 'No buttons bound to slots 1-8 yet. Bind slots in the IR remote settings.',
     pin: 'Pin popover: keep open after transmit',
     unpin: 'Unpin: close popover after transmit',

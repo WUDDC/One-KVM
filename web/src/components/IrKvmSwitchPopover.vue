@@ -4,32 +4,29 @@ import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
-import { ChevronLeft, ChevronRight, Play, Pause, Pin, PinOff } from 'lucide-vue-next'
+import { Send, Settings2, ChevronLeft, ChevronRight, Play, Pause, Pin, PinOff } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
 import { irApi } from '@/api'
 
 const { t } = useI18n()
+const router = useRouter()
 
 const emit = defineEmits<{ close: [] }>()
 
 const pinned = ref(false)
 const overlayOpacity = ref(100)
 
-const SLOT_COUNT = 8
-
 const loading = ref(true)
 const unavailable = ref(false)
-// slot number (1-based) -> button id; only bound slots are present.
-const slotButtons = ref<Record<number, { id: number; name: string }>>({})
-const sendingSlot = ref<number | null>(null)
-const activeSlot = ref<number | null>(null)
+const sendingId = ref<number | null>(null)
+const activeIndex = ref(-1)
 const autoCycle = ref(false)
 const cycleIntervalMs = ref(5000)
 const intervalInput = ref('5')
 let cycleTimer: number | null = null
 
-const boundSlots = computed(() =>
-  Array.from({ length: SLOT_COUNT }, (_, i) => i + 1).filter((n) => slotButtons.value[n]),
-)
+const kvmRemote = ref<{ id: number; name: string; buttons: Array<{ id: number; name: string }> } | null>(null)
+const buttons = computed(() => kvmRemote.value?.buttons ?? [])
 
 function stopCycleTimer() {
   if (cycleTimer !== null) {
@@ -48,24 +45,17 @@ function toggleAutoCycle() {
     stopAutoCycle()
     return
   }
-  if (unavailable.value || boundSlots.value.length === 0) return
+  if (unavailable.value || buttons.value.length === 0) return
   normalizeInterval()
   autoCycle.value = true
-  if (activeSlot.value === null || !slotButtons.value[activeSlot.value]) {
-    const first = boundSlots.value[0]
-    if (first === undefined) return
-    activeSlot.value = first
-  }
-  const start = activeSlot.value
-  if (start === null) return
-  fire(start)
-  cycleTimer = window.setInterval(() => cycleSlot(1), cycleIntervalMs.value)
+  cycleButton(1)
+  cycleTimer = window.setInterval(() => cycleButton(1), cycleIntervalMs.value)
 }
 
 watch(cycleIntervalMs, () => {
   if (autoCycle.value) {
     stopCycleTimer()
-    cycleTimer = window.setInterval(() => cycleSlot(1), cycleIntervalMs.value)
+    cycleTimer = window.setInterval(() => cycleButton(1), cycleIntervalMs.value)
   }
 })
 
@@ -94,59 +84,43 @@ async function load() {
       irApi.listRemotes(),
       irApi.hardware(),
     ])
-    const map: Record<number, { id: number; name: string }> = {}
-    for (const remote of remoteResponse.remotes) {
-      // Only the single KVM-switch remote drives the slot buttons.
-      if (!remote.is_kvm) continue
-      for (const button of remote.buttons) {
-        if (button.slot !== null && button.slot >= 1 && button.slot <= SLOT_COUNT) {
-          map[button.slot] = { id: button.id, name: button.name }
-        }
-      }
-    }
-    slotButtons.value = map
+    kvmRemote.value = remoteResponse.remotes.find((r) => r.is_kvm) ?? null
     unavailable.value = !hardware.rx_available && !hardware.tx_available
   } catch {
     unavailable.value = true
+    kvmRemote.value = null
   } finally {
     loading.value = false
   }
 }
 
-async function fire(slot: number) {
-  const button = slotButtons.value[slot]
-  if (!button || sendingSlot.value !== null) return
-  sendingSlot.value = slot
+async function send(buttonId: number) {
+  if (sendingId.value !== null) return
+  sendingId.value = buttonId
   let ok = false
   try {
-    await irApi.send(button.id)
+    await irApi.send(buttonId)
     ok = true
   } catch {
     // Errors surface through the shared request toast.
   } finally {
     setTimeout(() => {
-      if (sendingSlot.value === slot) sendingSlot.value = null
+      if (sendingId.value === buttonId) sendingId.value = null
     }, 300)
   }
   // Single-shot sends close the popover unless pinned or auto-cycling.
   if (ok && !autoCycle.value && !pinned.value) emit('close')
 }
 
-function onSlotClick(slot: number) {
-  activeSlot.value = slot
-  fire(slot)
-}
-
-/// Move through the *bound* slots in order (wraps around) and fire each.
-function cycleSlot(dir: 1 | -1) {
-  const bound = boundSlots.value
-  if (bound.length === 0 || unavailable.value || sendingSlot.value !== null) return
-  const pos = activeSlot.value !== null ? bound.indexOf(activeSlot.value) : -1
-  const base = pos === -1 ? (dir > 0 ? -1 : 0) : pos
-  const next = bound[(base + dir + bound.length) % bound.length]
-  if (next === undefined) return
-  activeSlot.value = next
-  fire(next)
+/// Move the active pointer through the buttons (wraps around) and fire.
+function cycleButton(dir: 1 | -1) {
+  const list = buttons.value
+  if (list.length === 0 || unavailable.value || sendingId.value !== null) return
+  const base = activeIndex.value === -1 ? (dir > 0 ? -1 : 0) : activeIndex.value
+  const next = list[(base + dir + list.length) % list.length]
+  if (!next) return
+  activeIndex.value = list.indexOf(next)
+  send(next.id)
 }
 
 onMounted(load)
@@ -161,16 +135,19 @@ onMounted(load)
         {{ t('ir.unavailable') }}
       </div>
 
-      <div v-if="boundSlots.length === 0" class="text-xs text-muted-foreground text-center py-2">
-        {{ t('ir.noSlotBound') }}
+      <div v-if="!kvmRemote" class="text-xs text-muted-foreground text-center py-2">
+        {{ t('ir.noKvmRemote') }}
+      </div>
+
+      <div v-else-if="buttons.length === 0" class="text-xs text-muted-foreground text-center py-2">
+        {{ t('ir.noButtons') }}
       </div>
 
       <template v-else>
-        <div class="flex items-center justify-center gap-1 flex-wrap">
+        <div class="flex items-center justify-center gap-1">
           <Button
-            variant="outline"
-            size="icon"
-            class="size-9 shrink-0"
+            variant="ghost"
+            size="icon-sm"
             :class="pinned && 'text-primary'"
             :aria-label="pinned ? t('ir.unpin') : t('ir.pin')"
             :title="pinned ? t('ir.unpin') : t('ir.pin')"
@@ -181,46 +158,21 @@ onMounted(load)
           </Button>
           <Button
             variant="outline"
-            size="icon"
-            class="size-9 shrink-0"
-            :disabled="unavailable || boundSlots.length === 0 || sendingSlot !== null"
+            size="icon-sm"
+            :disabled="unavailable || sendingId !== null"
             :aria-label="t('ir.prevButton')"
-            @click="cycleSlot(-1)"
+            @click="cycleButton(-1)"
           ><ChevronLeft class="size-4" /></Button>
-          <Button
-            v-for="slot in 8"
-            :key="slot"
-            variant="outline"
-            size="icon"
-            class="size-9 text-xs font-medium"
-            :class="slot === activeSlot && '[outline:2px_solid_var(--primary)]! [outline-offset:-2px]!'"
-            :disabled="!slotButtons[slot] || unavailable || sendingSlot !== null"
-            :title="slotButtons[slot]
-              ? `${slot}: ${slotButtons[slot].name}`
-              : t('ir.slotEmpty')"
-            @click="onSlotClick(slot)"
-          >
-            <Spinner v-if="sendingSlot === slot" class="size-3.5" />
-            <span v-else>{{ slot }}</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            class="size-9 shrink-0"
-            :disabled="unavailable || boundSlots.length === 0 || sendingSlot !== null"
-            :aria-label="t('ir.nextButton')"
-            @click="cycleSlot(1)"
-          ><ChevronRight class="size-4" /></Button>
           <Button
             :variant="autoCycle ? 'default' : 'outline'"
             size="sm"
-            class="h-9 text-xs px-2.5"
-            :disabled="unavailable || boundSlots.length === 0"
+            class="h-8 text-xs px-2.5"
+            :disabled="unavailable"
             :aria-label="t('ir.cycleSwitch')"
             @click="toggleAutoCycle"
           >
-            <Pause v-if="autoCycle" class="size-3.5 mr-1" />
-            <Play v-else class="size-3.5 mr-1" />
+            <Pause v-if="autoCycle" class="size-3 mr-0.5" />
+            <Play v-else class="size-3 mr-0.5" />
             {{ t('ir.cycleSwitch') }}
           </Button>
           <div class="flex w-14 items-center gap-0.5">
@@ -231,28 +183,50 @@ onMounted(load)
               max="99"
               step="0.5"
               inputmode="decimal"
-              class="h-9 text-xs text-center px-1"
+              class="h-8 text-xs text-center px-1"
               :aria-label="t('ir.autoCycleInterval')"
               @blur="normalizeInterval"
               @keyup.enter="($event.target as HTMLInputElement).blur()"
             />
             <span class="text-xs text-muted-foreground shrink-0">s</span>
           </div>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            :disabled="unavailable || sendingId !== null"
+            :aria-label="t('ir.nextButton')"
+            @click="cycleButton(1)"
+          ><ChevronRight class="size-4" /></Button>
         </div>
 
-        <div v-if="pinned" class="flex items-center gap-2">
-          <span class="text-xs text-muted-foreground shrink-0">{{ t('ir.overlayOpacity') }}</span>
-          <input
-            type="range"
-            min="30"
-            max="100"
-            v-model.number="overlayOpacity"
-            class="flex-1 accent-primary"
-            :aria-label="t('ir.overlayOpacity')"
-          />
-          <span class="text-xs text-muted-foreground w-9 text-right shrink-0">{{ overlayOpacity }}%</span>
+        <div class="grid grid-cols-3 gap-1.5">
+          <Button
+            v-for="(button, index) in buttons"
+            :key="button.id"
+            variant="outline"
+            size="sm"
+            class="h-auto min-h-12 flex-col gap-0.5 px-1 py-1.5 text-xs"
+            :class="index === activeIndex && '[outline:2px_solid_var(--primary)]! [outline-offset:-2px]!'"
+            :disabled="unavailable || sendingId !== null"
+            :title="unavailable ? t('ir.unavailable') : undefined"
+            @click="activeIndex = index; send(button.id)"
+          >
+            <Spinner v-if="sendingId === button.id" class="size-3.5" />
+            <Send v-else class="size-3.5 text-muted-foreground" />
+            <span class="w-full truncate leading-tight">{{ button.name }}</span>
+          </Button>
         </div>
       </template>
     </template>
+
+    <Button
+      variant="ghost"
+      size="sm"
+      class="w-full h-7 text-xs text-muted-foreground"
+      @click="router.push('/settings?tab=ir')"
+    >
+      <Settings2 class="size-3.5 mr-1" />
+      {{ t('ir.manageHint') }}
+    </Button>
   </div>
 </template>

@@ -219,6 +219,7 @@ export default {
     autoCycleInterval: '自动循环间隔',
     cycleSwitch: '循环切换',
     slotEmpty: '该槽位未绑定按键',
+    noKvmRemote: '还没有设为 KVM 切换的遥控，在红外遥控设置里将遥控「设为 KVM 切换」。',
     noSlotBound: '还没有按键绑定槽位 1-8，在红外遥控设置里为按键绑定槽位。',
     pin: '钉住弹窗：发射后不自动关闭',
     unpin: '取消钉住：发射后自动关闭',
