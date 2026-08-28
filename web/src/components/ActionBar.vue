@@ -402,20 +402,27 @@ const hasRightOverflow = computed(() => {
           </Popover>
         </div>
 
-        <!-- KVM Switch (slot-bound IR buttons) -->
-        <div v-if="isVisible('ir')">
-          <Popover v-model:open="kvmOpen">
-            <PopoverTrigger as-child>
-              <Button variant="ghost" size="sm" class="h-8 gap-1.5 text-xs">
-                <SquareStack class="size-4" />
-                <span v-if="visibleSet.get('ir') === 'label'">{{ t('actionbar.kvmSwitch') }}</span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent class="w-[min(680px,95vw)] bg-transparent border-0! shadow-none! p-0" align="end">
-              <IrKvmSwitchPopover v-if="kvmOpen" @close="kvmOpen = false" />
-            </PopoverContent>
-          </Popover>
+        <!-- KVM Switch (slot-bound IR buttons): fixed 70vw centered panel -->
+        <div v-if="isVisible('ir')" class="relative">
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-8 gap-1.5 text-xs"
+            :class="kvmOpen && 'bg-accent text-accent-foreground'"
+            @click="kvmOpen = !kvmOpen"
+          >
+            <SquareStack class="size-4" />
+            <span v-if="visibleSet.get('ir') === 'label'">{{ t('actionbar.kvmSwitch') }}</span>
+          </Button>
         </div>
+
+        <!-- KVM Switch panel: 70vw, centered (15% gutters), teleported to body -->
+        <Teleport to="body">
+          <div v-if="kvmOpen" class="fixed inset-0 z-40" @click="kvmOpen = false" />
+          <div v-if="kvmOpen" class="fixed top-20 left-[15vw] right-[15vw] z-50">
+            <IrKvmSwitchPopover @close="kvmOpen = false" />
+          </div>
+        </Teleport>
 
         <!-- Paste Text - Adaptive -->
         <div v-if="showPasteText && isVisible('paste')">
