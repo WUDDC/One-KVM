@@ -419,7 +419,7 @@ const hasRightOverflow = computed(() => {
         <!-- KVM Switch panel: 70vw, centered (15% gutters), teleported to body -->
         <Teleport to="body">
           <div v-if="kvmOpen" class="fixed inset-0 z-40" @click="kvmOpen = false" />
-          <div v-if="kvmOpen" class="fixed top-20 left-[15vw] right-[15vw] z-50">
+          <div v-if="kvmOpen" class="fixed top-28 left-[15vw] right-[15vw] z-50">
             <IrKvmSwitchPopover @close="kvmOpen = false" />
           </div>
         </Teleport>
