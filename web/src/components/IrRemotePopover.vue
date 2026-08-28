@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Spinner } from '@/components/ui/spinner'
-import { Send, Radio, Settings2, ChevronLeft, ChevronRight, Play, Square } from 'lucide-vue-next'
+import { Send, Radio, Settings2, ChevronLeft, ChevronRight, Play, Pause } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { irApi, type IrRemote } from '@/api'
 
@@ -17,14 +17,55 @@ const loading = ref(true)
 const unavailable = ref(false)
 const sendingId = ref<number | null>(null)
 const activeIndex = ref(-1)
+const autoCycle = ref(false)
+const cycleIntervalMs = ref(1000)
+let cycleTimer: number | null = null
 
 const selectedRemote = computed(
   () => remotes.value.find((r) => r.id === selectedRemoteId.value) ?? null,
 )
 
+function stopCycleTimer() {
+  if (cycleTimer !== null) {
+    clearInterval(cycleTimer)
+    cycleTimer = null
+  }
+}
+
+function stopAutoCycle() {
+  stopCycleTimer()
+  autoCycle.value = false
+}
+
+function toggleAutoCycle() {
+  if (autoCycle.value) {
+    stopAutoCycle()
+    return
+  }
+  if (unavailable.value || (selectedRemote.value?.buttons.length ?? 0) === 0) return
+  autoCycle.value = true
+  cycleButton(1)
+  cycleTimer = window.setInterval(() => cycleButton(1), cycleIntervalMs.value)
+}
+
+watch(cycleIntervalMs, () => {
+  // Restart the timer so a changed interval applies while running.
+  if (autoCycle.value) {
+    stopCycleTimer()
+    cycleTimer = window.setInterval(() => cycleButton(1), cycleIntervalMs.value)
+  }
+})
+
 watch(selectedRemoteId, () => {
   activeIndex.value = -1
+  stopAutoCycle()
 })
+
+watch(unavailable, (v) => {
+  if (v) stopAutoCycle()
+})
+
+onUnmounted(stopAutoCycle)
 
 async function load() {
   loading.value = true
@@ -71,41 +112,6 @@ function cycleButton(dir: 1 | -1) {
   activeIndex.value = buttons.indexOf(next)
   send(next.id)
 }
-
-// Auto-cycle: fire the next button every second until stopped.
-const AUTO_CYCLE_INTERVAL_MS = 1000
-const autoCycling = ref(false)
-let autoTimer: number | null = null
-
-function stopAutoCycle() {
-  autoCycling.value = false
-  if (autoTimer !== null) {
-    clearInterval(autoTimer)
-    autoTimer = null
-  }
-}
-
-function toggleAutoCycle() {
-  if (autoCycling.value) {
-    stopAutoCycle()
-    return
-  }
-  if (unavailable.value || (selectedRemote.value?.buttons.length ?? 0) === 0) return
-  autoCycling.value = true
-  cycleButton(1)
-  autoTimer = window.setInterval(() => {
-    if (unavailable.value || (selectedRemote.value?.buttons.length ?? 0) === 0) {
-      stopAutoCycle()
-      return
-    }
-    if (sendingId.value === null) cycleButton(1)
-  }, AUTO_CYCLE_INTERVAL_MS)
-}
-
-onUnmounted(stopAutoCycle)
-watch(unavailable, (value) => {
-  if (value) stopAutoCycle()
-})
 
 onMounted(load)
 </script>
@@ -154,17 +160,27 @@ onMounted(load)
             @click="cycleButton(-1)"
           ><ChevronLeft class="size-3.5 mr-0.5" />{{ t('ir.prevButton') }}</Button>
           <Button
-            :variant="autoCycling ? 'default' : 'outline'"
+            :variant="autoCycle ? 'default' : 'outline'"
             size="sm"
             class="h-7 text-xs"
             :disabled="unavailable || selectedRemote.buttons.length === 0"
             :aria-label="t('ir.autoCycle')"
             @click="toggleAutoCycle"
           >
-            <Square v-if="autoCycling" class="size-3 mr-0.5" />
+            <Pause v-if="autoCycle" class="size-3 mr-0.5" />
             <Play v-else class="size-3 mr-0.5" />
             {{ t('ir.autoCycle') }}
           </Button>
+          <NativeSelect
+            v-model="cycleIntervalMs"
+            class="h-7 w-auto text-xs"
+            :aria-label="t('ir.autoCycleInterval')"
+          >
+            <option :value="500">0.5s</option>
+            <option :value="1000">1s</option>
+            <option :value="2000">2s</option>
+            <option :value="5000">5s</option>
+          </NativeSelect>
           <Button
             variant="outline"
             size="sm"

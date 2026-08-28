@@ -215,6 +215,7 @@ export default {
     prevButton: 'Prev',
     nextButton: 'Next',
     autoCycle: 'Auto-cycle',
+    autoCycleInterval: 'Auto-cycle interval',
     noRemotesHint: 'No remotes available yet. Go to Settings → IR Remote to learn or import one.',
     noButtons: 'No buttons in this remote',
     unavailable: 'No IR hardware detected',
