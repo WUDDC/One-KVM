@@ -97,10 +97,8 @@ async function load() {
 async function send(buttonId: number) {
   if (sendingId.value !== null) return
   sendingId.value = buttonId
-  let ok = false
   try {
     await irApi.send(buttonId)
-    ok = true
   } catch {
     // Errors surface through the shared request toast.
   } finally {
@@ -108,8 +106,9 @@ async function send(buttonId: number) {
       if (sendingId.value === buttonId) sendingId.value = null
     }, 300)
   }
-  // Single-shot sends close the popover unless pinned or auto-cycling.
-  if (ok && !autoCycle.value && !pinned.value) emit('close')
+  // Single-shot sends close the popover unless pinned or auto-cycling
+  // (even on failure — the error toast stays visible).
+  if (!autoCycle.value && !pinned.value) emit('close')
 }
 
 /// Move the active pointer through the buttons (wraps around) and fire.
@@ -197,6 +196,19 @@ onMounted(load)
             :aria-label="t('ir.nextButton')"
             @click="cycleButton(1)"
           ><ChevronRight class="size-4" /></Button>
+        </div>
+
+        <div v-if="pinned" class="flex items-center gap-2">
+          <span class="text-xs text-muted-foreground shrink-0">{{ t('ir.overlayOpacity') }}</span>
+          <input
+            type="range"
+            min="30"
+            max="100"
+            v-model.number="overlayOpacity"
+            class="flex-1 accent-primary"
+            :aria-label="t('ir.overlayOpacity')"
+          />
+          <span class="text-xs text-muted-foreground w-9 text-right shrink-0">{{ overlayOpacity }}%</span>
         </div>
 
         <div class="flex flex-wrap justify-center gap-1.5">
