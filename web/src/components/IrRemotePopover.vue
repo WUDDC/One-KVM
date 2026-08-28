@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Spinner } from '@/components/ui/spinner'
-import { Send, Radio, Settings2 } from 'lucide-vue-next'
+import { Send, Settings2, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { irApi, type IrRemote } from '@/api'
 
@@ -55,16 +55,31 @@ async function send(buttonId: number) {
   }
 }
 
+function cycleRemote(dir: 1 | -1) {
+  if (remotes.value.length === 0) return
+  const index = remotes.value.findIndex((r) => r.id === selectedRemoteId.value)
+  const base = index === -1 ? 0 : index
+  const next = remotes.value[(base + dir + remotes.value.length) % remotes.value.length]
+  if (next) selectedRemoteId.value = next.id
+}
+
 onMounted(load)
 </script>
 
 <template>
   <div class="p-3 space-y-3">
-    <div class="flex items-center gap-2">
-      <Radio class="size-4 text-muted-foreground" />
+    <div class="flex items-center gap-1">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="shrink-0"
+        :disabled="remotes.length < 2"
+        :aria-label="t('ir.prevRemote')"
+        @click="cycleRemote(-1)"
+      ><ChevronLeft class="size-4" /></Button>
       <NativeSelect
         v-model="selectedRemoteId"
-        class="h-8 text-xs"
+        class="h-8 text-xs flex-1"
         :disabled="remotes.length === 0"
       >
         <option v-if="remotes.length === 0" :value="null" disabled>
@@ -74,6 +89,14 @@ onMounted(load)
           {{ remote.name }}
         </option>
       </NativeSelect>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="shrink-0"
+        :disabled="remotes.length < 2"
+        :aria-label="t('ir.nextRemote')"
+        @click="cycleRemote(1)"
+      ><ChevronRight class="size-4" /></Button>
     </div>
 
     <Spinner v-if="loading" class="mx-auto my-6 size-5" />

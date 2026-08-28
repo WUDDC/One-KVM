@@ -212,6 +212,8 @@ export default {
   },
   ir: {
     noRemotes: 'No remotes yet',
+    prevRemote: 'Previous remote',
+    nextRemote: 'Next remote',
     noRemotesHint: 'No remotes available yet. Go to Settings → IR Remote to learn or import one.',
     noButtons: 'No buttons in this remote',
     unavailable: 'No IR hardware detected',
