@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Spinner } from '@/components/ui/spinner'
 import { Send, Radio, Settings2, ChevronLeft, ChevronRight, Play, Pause } from 'lucide-vue-next'
@@ -19,7 +20,21 @@ const sendingId = ref<number | null>(null)
 const activeIndex = ref(-1)
 const autoCycle = ref(false)
 const cycleIntervalMs = ref(1000)
+const intervalInput = ref('1')
 let cycleTimer: number | null = null
+
+/// Snap the interval to 0.5s steps clamped to [1, 99] seconds
+/// (e.g. 1.9 -> 2, 1.4 -> 1.5) and apply it.
+function normalizeInterval(e?: Event) {
+  const raw = e?.target instanceof HTMLInputElement ? e.target.value : intervalInput.value
+  const parsed = parseFloat(raw)
+  const sec = Number.isFinite(parsed) ? Math.round(parsed * 2) / 2 : 1
+  const clamped = Math.min(99, Math.max(1, sec))
+  const text = String(clamped)
+  intervalInput.value = text
+  if (e?.target instanceof HTMLInputElement) e.target.value = text
+  cycleIntervalMs.value = Math.round(clamped * 1000)
+}
 
 const selectedRemote = computed(
   () => remotes.value.find((r) => r.id === selectedRemoteId.value) ?? null,
@@ -43,6 +58,7 @@ function toggleAutoCycle() {
     return
   }
   if (unavailable.value || (selectedRemote.value?.buttons.length ?? 0) === 0) return
+  normalizeInterval()
   autoCycle.value = true
   cycleButton(1)
   cycleTimer = window.setInterval(() => cycleButton(1), cycleIntervalMs.value)
@@ -171,17 +187,20 @@ onMounted(load)
             <Play v-else class="size-3 mr-0.5" />
             {{ t('ir.autoCycle') }}
           </Button>
-          <div class="w-16 shrink-0">
-            <NativeSelect
-              v-model="cycleIntervalMs"
-              class="h-8 text-xs"
+          <div class="flex w-20 shrink-0 items-center gap-0.5">
+            <Input
+              v-model="intervalInput"
+              type="number"
+              min="1"
+              max="99"
+              step="0.5"
+              inputmode="decimal"
+              class="h-8 text-xs text-center"
               :aria-label="t('ir.autoCycleInterval')"
-            >
-              <option :value="500">0.5s</option>
-              <option :value="1000">1s</option>
-              <option :value="2000">2s</option>
-              <option :value="5000">5s</option>
-            </NativeSelect>
+              @blur="normalizeInterval"
+              @keyup.enter="($event.target as HTMLInputElement).blur()"
+            />
+            <span class="text-xs text-muted-foreground shrink-0">s</span>
           </div>
           <Button
             variant="outline"
