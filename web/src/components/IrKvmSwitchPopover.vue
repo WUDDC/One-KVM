@@ -143,7 +143,7 @@ onMounted(load)
       </div>
 
       <template v-else>
-        <div class="flex items-center justify-center gap-1">
+        <div class="flex flex-wrap items-center justify-center gap-1">
           <Button
             variant="outline"
             size="icon-sm"
@@ -196,22 +196,6 @@ onMounted(load)
             :aria-label="t('ir.nextButton')"
             @click="cycleButton(1)"
           ><ChevronRight class="size-4" /></Button>
-        </div>
-
-        <div v-if="pinned" class="flex items-center gap-2">
-          <span class="text-xs text-muted-foreground shrink-0">{{ t('ir.overlayOpacity') }}</span>
-          <input
-            type="range"
-            min="30"
-            max="100"
-            v-model.number="overlayOpacity"
-            class="flex-1 accent-primary"
-            :aria-label="t('ir.overlayOpacity')"
-          />
-          <span class="text-xs text-muted-foreground w-9 text-right shrink-0">{{ overlayOpacity }}%</span>
-        </div>
-
-        <div class="flex flex-wrap justify-center gap-1.5">
           <Button
             v-for="(button, index) in buttons"
             :key="button.id"
@@ -225,6 +209,18 @@ onMounted(load)
           >
             <span class="truncate">{{ button.name }}</span>
           </Button>
+          <div v-if="pinned" class="flex w-full items-center gap-2 pt-1">
+            <span class="text-xs text-muted-foreground shrink-0">{{ t('ir.overlayOpacity') }}</span>
+            <input
+              type="range"
+              min="30"
+              max="100"
+              v-model.number="overlayOpacity"
+              class="flex-1 accent-primary"
+              :aria-label="t('ir.overlayOpacity')"
+            />
+            <span class="text-xs text-muted-foreground w-9 text-right shrink-0">{{ overlayOpacity }}%</span>
+          </div>
         </div>
       </template>
     </template>
