@@ -223,7 +223,7 @@ onMounted(load)
       variant="ghost"
       size="sm"
       class="w-full h-7 text-xs text-muted-foreground"
-      @click="router.push('/settings?tab=ir')"
+      @click="router.push('/settings?tab=ir'); emit('close')"
     >
       <Settings2 class="size-3.5 mr-1" />
       {{ t('ir.manageHint') }}
