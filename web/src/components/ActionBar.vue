@@ -405,7 +405,7 @@ const hasRightOverflow = computed(() => {
               </Button>
             </PopoverTrigger>
             <PopoverContent class="w-[min(460px,90vw)] p-0" align="end">
-              <IrKvmSwitchPopover v-if="kvmOpen" />
+              <IrKvmSwitchPopover v-if="kvmOpen" @close="kvmOpen = false" />
             </PopoverContent>
           </Popover>
         </div>

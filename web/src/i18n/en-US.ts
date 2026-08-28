@@ -220,6 +220,8 @@ export default {
     cycleSwitch: 'Cycle',
     slotEmpty: 'No button bound to this slot',
     noSlotBound: 'No buttons bound to slots 1-8 yet. Bind slots in the IR remote settings.',
+    pin: 'Pin popover: keep open after transmit',
+    unpin: 'Unpin: close popover after transmit',
     noRemotesHint: 'No remotes available yet. Go to Settings → IR Remote to learn or import one.',
     noButtons: 'No buttons in this remote',
     unavailable: 'No IR hardware detected',

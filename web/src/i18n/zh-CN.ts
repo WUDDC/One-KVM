@@ -220,6 +220,8 @@ export default {
     cycleSwitch: '循环切换',
     slotEmpty: '该槽位未绑定按键',
     noSlotBound: '还没有按键绑定槽位 1-8，在红外遥控设置里为按键绑定槽位。',
+    pin: '钉住弹窗：发射后不自动关闭',
+    unpin: '取消钉住：发射后自动关闭',
     noRemotesHint: '还没有可用的遥控，前往 设置 → 红外遥控 学习或导入。',
     noButtons: '该遥控暂无按键',
     unavailable: '未检测到红外收发硬件',

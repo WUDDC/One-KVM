@@ -4,12 +4,16 @@ import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
-import { ChevronLeft, ChevronRight, Play, Pause, Settings2 } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Play, Pause, Settings2, Pin, PinOff } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { irApi } from '@/api'
 
 const { t } = useI18n()
 const router = useRouter()
+
+const emit = defineEmits<{ close: [] }>()
+
+const pinned = ref(false)
 
 const SLOT_COUNT = 8
 
@@ -112,8 +116,10 @@ async function fire(slot: number) {
   const button = slotButtons.value[slot]
   if (!button || sendingSlot.value !== null) return
   sendingSlot.value = slot
+  let ok = false
   try {
     await irApi.send(button.id)
+    ok = true
   } catch {
     // Errors surface through the shared request toast.
   } finally {
@@ -121,6 +127,8 @@ async function fire(slot: number) {
       if (sendingSlot.value === slot) sendingSlot.value = null
     }, 300)
   }
+  // Single-shot sends close the popover unless pinned or auto-cycling.
+  if (ok && !autoCycle.value && !pinned.value) emit('close')
 }
 
 function onSlotClick(slot: number) {
@@ -215,6 +223,17 @@ onMounted(load)
             />
             <span class="text-xs text-muted-foreground shrink-0">s</span>
           </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            :class="pinned && 'text-primary'"
+            :aria-label="pinned ? t('ir.unpin') : t('ir.pin')"
+            :title="pinned ? t('ir.unpin') : t('ir.pin')"
+            @click="pinned = !pinned"
+          >
+            <Pin v-if="!pinned" class="size-4" />
+            <PinOff v-else class="size-4" />
+          </Button>
         </div>
       </template>
     </template>
