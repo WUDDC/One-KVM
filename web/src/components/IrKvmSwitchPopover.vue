@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
-import { Send, Settings2, ChevronLeft, ChevronRight, Play, Pause, Pin, PinOff } from 'lucide-vue-next'
+import { Settings2, ChevronLeft, ChevronRight, Play, Pause, Pin, PinOff } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { irApi } from '@/api'
 
@@ -145,7 +145,7 @@ onMounted(load)
       <template v-else>
         <div class="flex items-center justify-center gap-1">
           <Button
-            variant="ghost"
+            variant="outline"
             size="icon-sm"
             :class="pinned && 'text-primary'"
             :aria-label="pinned ? t('ir.unpin') : t('ir.pin')"
@@ -217,15 +217,13 @@ onMounted(load)
             :key="button.id"
             variant="outline"
             size="sm"
-            class="h-auto w-20 min-h-12 flex-col gap-0.5 px-1 py-1.5 text-xs"
+            class="h-8 px-2.5 text-xs"
             :class="index === activeIndex && '[outline:2px_solid_var(--primary)]! [outline-offset:-2px]!'"
             :disabled="unavailable || sendingId !== null"
             :title="unavailable ? t('ir.unavailable') : undefined"
             @click="activeIndex = index; send(button.id)"
           >
-            <Spinner v-if="sendingId === button.id" class="size-3.5" />
-            <Send v-else class="size-3.5 text-muted-foreground" />
-            <span class="w-full truncate leading-tight">{{ button.name }}</span>
+            <span class="truncate">{{ button.name }}</span>
           </Button>
         </div>
       </template>
