@@ -40,10 +40,12 @@ import {
   Terminal,
   MoreHorizontal,
   Bot,
+  SquareStack,
 } from 'lucide-vue-next'
 import PasteModal from '@/components/PasteModal.vue'
 import AtxPopover from '@/components/AtxPopover.vue'
 import IrRemotePopover from '@/components/IrRemotePopover.vue'
+import IrKvmSwitchPopover from '@/components/IrKvmSwitchPopover.vue'
 import VideoConfigPopover, { type VideoMode } from '@/components/VideoConfigPopover.vue'
 import HidConfigPopover from '@/components/HidConfigPopover.vue'
 import AudioConfigPopover from '@/components/AudioConfigPopover.vue'
@@ -97,6 +99,7 @@ const emit = defineEmits<{
 const pasteOpen = ref(false)
 const atxOpen = ref(false)
 const irOpen = ref(false)
+const kvmOpen = ref(false)
 const videoPopoverOpen = ref(false)
 const hidPopoverOpen = ref(false)
 const audioPopoverOpen = ref(false)
@@ -388,6 +391,21 @@ const hasRightOverflow = computed(() => {
             </PopoverTrigger>
             <PopoverContent class="w-[min(360px,90vw)] p-0" align="start">
               <IrRemotePopover v-if="irOpen" />
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        <!-- KVM Switch (slot-bound IR buttons) -->
+        <div v-if="isVisible('ir')">
+          <Popover v-model:open="kvmOpen">
+            <PopoverTrigger as-child>
+              <Button variant="ghost" size="sm" class="h-8 gap-1.5 text-xs">
+                <SquareStack class="size-4" />
+                <span v-if="visibleSet.get('ir') === 'label'">{{ t('actionbar.kvmSwitch') }}</span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent class="w-[min(460px,90vw)] p-0" align="end">
+              <IrKvmSwitchPopover v-if="kvmOpen" />
             </PopoverContent>
           </Popover>
         </div>
