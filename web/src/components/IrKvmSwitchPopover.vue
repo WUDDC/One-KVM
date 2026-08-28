@@ -196,14 +196,14 @@ onMounted(load)
             <span v-else>{{ slot }}</span>
           </Button>
           <Button
-            variant="ghost"
+            variant="outline"
             size="icon-sm"
             :disabled="unavailable || boundSlots.length === 0 || sendingSlot !== null"
             :aria-label="t('ir.prevButton')"
             @click="cycleSlot(-1)"
           ><ChevronLeft class="size-4" /></Button>
           <Button
-            variant="ghost"
+            variant="outline"
             size="icon-sm"
             :disabled="unavailable || boundSlots.length === 0 || sendingSlot !== null"
             :aria-label="t('ir.nextButton')"
