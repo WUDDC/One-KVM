@@ -144,6 +144,12 @@ pub async fn set_kvm_remote(pool: &Pool<Sqlite>, id: i64) -> Result<()> {
     sqlx::query("UPDATE ir_remotes SET is_kvm = 0 WHERE is_kvm = 1")
         .execute(&mut *tx)
         .await?;
+    // Slots are exclusive to the KVM-switch remote: drop every slot binding
+    // of other remotes so stale slots cannot linger after the switch.
+    sqlx::query("UPDATE ir_buttons SET slot = NULL WHERE remote_id != ? AND slot IS NOT NULL")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     let result = sqlx::query("UPDATE ir_remotes SET is_kvm = 1 WHERE id = ?")
         .bind(id)
         .execute(&mut *tx)
@@ -194,17 +200,22 @@ pub async fn rename_remote(pool: &Pool<Sqlite>, id: i64, name: &str) -> Result<(
 }
 
 pub async fn delete_remote(pool: &Pool<Sqlite>, id: i64) -> Result<()> {
+    // Delete the buttons and the remote atomically: if the remote delete
+    // fails we must not leave the buttons already removed.
+    let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM ir_buttons WHERE remote_id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     let result = sqlx::query("DELETE FROM ir_remotes WHERE id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     if result.rows_affected() == 0 {
+        tx.rollback().await.ok();
         return Err(AppError::NotFound(format!("IR remote {id} not found")));
     }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -291,6 +302,25 @@ pub async fn update_button(
             return Err(AppError::BadRequest(
                 "only the KVM-switch remote can bind slots".to_string(),
             ));
+        }
+        if let Some(slot) = slot {
+            if !(1..=8).contains(&slot) {
+                return Err(AppError::BadRequest(format!(
+                    "slot must be between 1 and 8, got {slot}"
+                )));
+            }
+            // Slots are unique within a remote: clear any other button
+            // already bound to this slot before assigning it.
+            sqlx::query(
+                "UPDATE ir_buttons SET slot = NULL \
+                 WHERE remote_id = (SELECT remote_id FROM ir_buttons WHERE id = ?) \
+                 AND slot = ? AND id != ?",
+            )
+            .bind(id)
+            .bind(slot)
+            .bind(id)
+            .execute(pool)
+            .await?;
         }
         sqlx::query("UPDATE ir_buttons SET slot = ? WHERE id = ?")
             .bind(slot)

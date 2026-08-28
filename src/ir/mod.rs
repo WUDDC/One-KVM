@@ -16,7 +16,7 @@ mod tx;
 pub use store::{IrButtonRecord, IrRemoteRecord};
 
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
@@ -47,12 +47,17 @@ pub struct IrHardwareStatus {
 
 #[derive(Clone)]
 pub struct IrManager {
-    config: IrConfig,
+    /// Current IR config, kept behind a lock so runtime config updates
+    /// (settings page) take effect without a restart.
+    config: Arc<RwLock<IrConfig>>,
     db: crate::db::DatabasePool,
     events: Arc<EventBus>,
     led: Arc<led::Ws2812Led>,
     learn_lock: Arc<Mutex<()>>,
     session: Arc<Mutex<Option<LearnSessionHandle>>>,
+    /// Serializes TX hardware access: concurrent frames would interleave on
+    /// the same GPIO/LIRC device and corrupt each other.
+    tx_lock: Arc<Mutex<()>>,
 }
 
 struct LearnSessionHandle {
@@ -63,17 +68,32 @@ impl IrManager {
     pub fn new(config: IrConfig, db: crate::db::DatabasePool, events: Arc<EventBus>) -> Self {
         let led = Arc::new(led::Ws2812Led::new(&config));
         Self {
-            config,
+            config: Arc::new(RwLock::new(config)),
             db,
             events,
             led,
             learn_lock: Arc::new(Mutex::new(())),
             session: Arc::new(Mutex::new(None)),
+            tx_lock: Arc::new(Mutex::new(())),
         }
+    }
+
+    /// Snapshot of the current IR config. Falls back to the (possibly
+    /// poisoned-but-recoverable) inner value if the lock was poisoned by a
+    /// panicking reader/writer.
+    fn config(&self) -> IrConfig {
+        self.config
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     /// Re-apply hardware settings after a config change.
     pub fn apply_config(&self, config: &IrConfig) {
+        *self
+            .config
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = config.clone();
         self.led.apply_config(config);
     }
 
@@ -96,7 +116,8 @@ impl IrManager {
 
         store::ensure_remote_exists(self.db.pool(), remote_id).await?;
 
-        let rx = rx::LircReceiver::open(self.config.rx_device.as_str())
+        let config = self.config();
+        let rx = rx::LircReceiver::open(config.rx_device.as_str())
             .map_err(|e| {
                 self.led.set(LedPattern::solid(LedColor::RED, 2000));
                 self.publish_learn("failed", Some(remote_id), None, None, None, None);
@@ -104,14 +125,14 @@ impl IrManager {
             })?;
         drop(rx);
 
-        let rx_device = self.config.rx_device.clone();
+        let rx_device = config.rx_device.clone();
         let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
         *self.session.lock().await = Some(LearnSessionHandle {
             cancelled: cancelled.clone(),
         });
 
         let manager = self.clone();
-        let timeout = Duration::from_millis(self.config.learn_timeout_ms.max(1000));
+        let timeout = Duration::from_millis(config.learn_timeout_ms.max(1000));
         info!("IR learn session started for remote {remote_id} ({button_name})");
         tokio::spawn(async move {
             let result = rx::capture(rx_device, cancelled, timeout).await;
@@ -145,7 +166,12 @@ impl IrManager {
         button_name: String,
         result: Result<LearnedCode>,
     ) {
-        let _ = self.session.lock().await.take();
+        // An empty session means cancel_learn already took it (or no session
+        // was ever started): the capture raced with a cancellation, so the
+        // result must not be persisted.
+        if self.session.lock().await.take().is_none() {
+            return;
+        }
 
         let code = match result {
             Ok(code) => code,
@@ -168,7 +194,7 @@ impl IrManager {
             &code.proto,
             Some(code.scancode as i64),
             None,
-            self.config.carrier as i64,
+            self.config().carrier as i64,
         )
         .await
         {
@@ -209,17 +235,23 @@ impl IrManager {
             .map_err(|e| AppError::Internal(format!("corrupt raw IR data: {e}")))?;
 
         // Bit-bang transmission blocks for the whole frame (~100 ms), so run
-        // it on a blocking thread.
-        let config = self.config.clone();
+        // it on a blocking thread. Hold the TX lock across the whole
+        // transmission (the tokio Mutex guard may be held across `.await`)
+        // so concurrent sends cannot interleave frames on the same
+        // GPIO/LIRC line; it is released once the frame is out.
+        let config = self.config();
+        let carrier = i64::from(config.carrier);
         let proto = button.proto.clone();
         let scancode = button.scancode;
-        let carrier = i64::from(self.config.carrier);
-        let result = tokio::task::spawn_blocking(move || {
-            let mut tx = tx::Transmitter::open(&config)?;
-            tx.transmit(&proto, scancode, raw.as_deref(), carrier)
-        })
-        .await
-        .map_err(|e| AppError::Internal(format!("IR send task failed: {e}")))?;
+        let result = {
+            let _tx_guard = self.tx_lock.lock().await;
+            tokio::task::spawn_blocking(move || {
+                let mut tx = tx::Transmitter::open(&config)?;
+                tx.transmit(&proto, scancode, raw.as_deref(), carrier)
+            })
+            .await
+            .map_err(|e| AppError::Internal(format!("IR send task failed: {e}")))?
+        };
 
         match result {
             Ok(()) => {
@@ -244,8 +276,9 @@ impl IrManager {
     // ------------------------------------------------------------- hardware
 
     pub async fn hardware_status(&self) -> IrHardwareStatus {
-        let rx = rx::LircReceiver::probe(self.config.rx_device.as_str());
-        let tx = tx::Transmitter::probe(&self.config);
+        let config = self.config();
+        let rx = rx::LircReceiver::probe(config.rx_device.as_str());
+        let tx = tx::Transmitter::probe(&config);
         IrHardwareStatus {
             rx_available: rx.is_some(),
             rx_device: rx,

@@ -14,12 +14,18 @@ use crate::error::{AppError, Result};
 use super::LearnedCode;
 
 // From include/uapi/linux/lirc.h (asm-generic ioctl encoding, arm64).
+// LIRC_GET_FEATURES = _IOR('i', 0x00, __u32), LIRC_SET_REC_MODE =
+// _IOW('i', 0x12, __u32), LIRC_SET_SEND_MODE = _IOW('i', 0x11, __u32).
+// Capability bits: LIRC_CAN_REC_MODE2 = LIRC_MODE2REC(LIRC_MODE_MODE2) =
+// 4 << 16, LIRC_CAN_REC_SCANCODE = LIRC_MODE2REC(LIRC_MODE_SCANCODE) = 8 << 16,
+// LIRC_CAN_SEND_PULSE = 0x2 (the only TX bit kernel TX devices advertise).
 const LIRC_MODE_SCANCODE: libc::c_uint = 0x0000_0008;
-const LIRC_CAN_REC_SCANCODE: libc::c_uint = 0x0000_0800;
-const LIRC_CAN_SEND_SCANCODE: libc::c_uint = 0x0000_0008;
-const LIRC_GET_FEATURES: libc::c_ulong = 0x4004_6900;
-const LIRC_SET_REC_MODE: libc::c_ulong = 0x4004_690a;
-const LIRC_SET_SEND_MODE: libc::c_ulong = 0x4004_6909;
+const LIRC_CAN_REC_MODE2: libc::c_uint = 0x0004_0000;
+const LIRC_CAN_REC_SCANCODE: libc::c_uint = 0x0008_0000;
+const LIRC_CAN_SEND_PULSE: libc::c_uint = 0x0000_0002;
+const LIRC_GET_FEATURES: libc::c_ulong = 0x8004_6900;
+const LIRC_SET_REC_MODE: libc::c_ulong = 0x4004_6912;
+const LIRC_SET_SEND_MODE: libc::c_ulong = 0x4004_6911;
 
 const QUIET_PERIOD: Duration = Duration::from_millis(250);
 
@@ -124,7 +130,7 @@ pub fn resolve_device(requested: &str) -> Option<String> {
         .map(|(dev, _)| dev)
 }
 
-/// Enumerate rc-core LIRC devices via sysfs: `($(DEVNAME), can_rec_scancode)`.
+/// Enumerate rc-core LIRC devices via sysfs: `($(DEVNAME), can_receive)`.
 pub fn scan_rc_devices() -> Vec<(String, bool)> {
     let mut found = Vec::new();
     let Ok(entries) = std::fs::read_dir("/sys/class/rc") else {
@@ -144,7 +150,7 @@ pub fn scan_rc_devices() -> Vec<(String, bool)> {
             let can_rec = std::fs::File::open(&path)
                 .map(|f| {
                     get_features(f.as_raw_fd())
-                        .map(|v| v & LIRC_CAN_REC_SCANCODE != 0)
+                        .map(|v| v & (LIRC_CAN_REC_MODE2 | LIRC_CAN_REC_SCANCODE) != 0)
                         .unwrap_or(false)
                 })
                 .unwrap_or(false);
@@ -170,7 +176,7 @@ impl LircReceiver {
     pub fn open(requested: &str) -> Result<Self> {
         let path = resolve_device(requested).ok_or_else(|| {
             AppError::Internal(
-                "no IR receiver found (meson-ir rc-core device with scancode support required)"
+                "no IR receiver found (rc-core LIRC device with MODE2/SCANCODE reception required)"
                     .to_string(),
             )
         })?;
@@ -182,9 +188,11 @@ impl LircReceiver {
             .map_err(|e| AppError::Internal(format!("open {path} failed: {e}")))?;
 
         let features = get_features(file.as_raw_fd())?;
-        if features & LIRC_CAN_REC_SCANCODE == 0 {
+        // meson-ir is RC_DRIVER_IR_RAW and only advertises REC_MODE2, but
+        // SET_REC_MODE(SCANCODE) still works on it, so accept either bit.
+        if features & (LIRC_CAN_REC_MODE2 | LIRC_CAN_REC_SCANCODE) == 0 {
             return Err(AppError::Internal(format!(
-                "{path} does not support LIRC_MODE_SCANCODE reception"
+                "{path} does not support LIRC reception (no MODE2/SCANCODE feature bit)"
             )));
         }
 
@@ -332,7 +340,7 @@ pub fn probe_tx_device() -> Option<String> {
             std::fs::File::open(&dev).ok().and_then(|f| {
                 let mut features: libc::c_uint = 0;
                 let rc = unsafe { libc::ioctl(f.as_raw_fd(), LIRC_GET_FEATURES, &mut features) };
-                (rc >= 0 && features & LIRC_CAN_SEND_SCANCODE != 0).then(|| dev.clone())
+                (rc >= 0 && features & LIRC_CAN_SEND_PULSE != 0).then(|| dev.clone())
             })
         })
         .next()

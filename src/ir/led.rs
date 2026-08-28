@@ -86,13 +86,24 @@ impl Ws2812Led {
 
         match open_backend(config) {
             Ok(backend) => {
-                ready.store(true, Ordering::Relaxed);
                 let brightness = config.led_brightness;
-                std::thread::Builder::new()
+                // Spawn first; only mark ready once the thread is actually
+                // running. On spawn failure the closure (and the backend
+                // with its /dev/mem mapping) is dropped, and `ready` stays
+                // false so the LED reports as unavailable instead of
+                // taking the whole process down.
+                let spawned = std::thread::Builder::new()
                     .name("ws2812-led".to_string())
-                    .spawn(move || led_task(backend, pattern_rx, brightness))
-                    .expect("failed to spawn LED thread");
-                debug!("STA WS2812 LED initialized");
+                    .spawn(move || led_task(backend, pattern_rx, brightness));
+                match spawned {
+                    Ok(_handle) => {
+                        ready.store(true, Ordering::Relaxed);
+                        debug!("STA WS2812 LED initialized");
+                    }
+                    Err(e) => {
+                        warn!("STA WS2812 LED thread spawn failed, LED disabled: {}", e);
+                    }
+                }
             }
             Err(e) => {
                 warn!("STA WS2812 LED unavailable: {}", e);
@@ -124,6 +135,26 @@ fn open_backend(config: &IrConfig) -> Result<LedBackend, String> {
 
     let page = config.led_mmap_base & !0xfff;
     let offset = (config.led_mmap_base & 0xfff) as usize;
+    // Register offsets are relative to the in-page base; reject any that
+    // are not word-aligned or whose 32-bit register would cross the
+    // boundary of the single mapped page (offset + reg + 4 > 0x1000)
+    // instead of silently reading/writing a neighbouring register.
+    let oen_off = offset + config.led_oen_offset as usize;
+    let out_off = offset + config.led_out_offset as usize;
+    for (name, off) in [("OEN", oen_off), ("OUT", out_off)] {
+        if off % 4 != 0 {
+            return Err(format!(
+                "LED {} register offset {:#x} is not 4-byte aligned",
+                name, off
+            ));
+        }
+        if off + 4 > 0x1000 {
+            return Err(format!(
+                "LED {} register offset {:#x} crosses the mapped page boundary",
+                name, off
+            ));
+        }
+    }
     let path = std::ffi::CString::new("/dev/mem").unwrap();
     let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR | libc::O_SYNC) };
     if fd < 0 {
@@ -153,8 +184,8 @@ fn open_backend(config: &IrConfig) -> Result<LedBackend, String> {
     let base_ptr = map as *mut u32;
     let regs = MmapRegs {
         map,
-        oen_ptr: unsafe { base_ptr.add((offset + config.led_oen_offset as usize) / 4) },
-        out_ptr: unsafe { base_ptr.add((offset + config.led_out_offset as usize) / 4) },
+        oen_ptr: unsafe { base_ptr.add(oen_off / 4) },
+        out_ptr: unsafe { base_ptr.add(out_off / 4) },
         mask: 1u32 << config.led_bit.min(31),
     };
 

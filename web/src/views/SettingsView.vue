@@ -1975,7 +1975,9 @@ async function startIrLearn(remote: IrRemote) {
     await irApi.learn(remote.id, buttonName)
     irLearnState.value = 'waiting'
     if (irLearnGuardTimer !== null) clearTimeout(irLearnGuardTimer)
-    const timeout = Math.max(irForm.value.learn_timeout_ms, 1000) + 3000
+    // Use the saved config value, not the unsaved form draft.
+    const savedLearnTimeout = configStore.ir?.learn_timeout_ms ?? irForm.value.learn_timeout_ms
+    const timeout = Math.max(savedLearnTimeout, 1000) + 3000
     irLearnGuardTimer = window.setTimeout(() => {
       if (irLearnState.value === 'waiting') {
         irLearnState.value = 'failed'

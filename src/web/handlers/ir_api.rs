@@ -157,6 +157,12 @@ pub async fn ir_send(
     State(state): State<Arc<AppState>>,
     axum::extract::Path(id): axum::extract::Path<i64>,
 ) -> Result<Json<LoginResponse>> {
+    let config = state.config.get();
+    if !config.ir.enabled {
+        return Err(AppError::BadRequest("IR remote is disabled".to_string()));
+    }
+    drop(config);
+
     state.ir.send_button(id).await?;
     Ok(Json(LoginResponse {
         success: true,
