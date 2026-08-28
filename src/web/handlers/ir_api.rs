@@ -278,7 +278,7 @@ pub async fn ir_export_remote(
             name: button.name.clone(),
             protocol: button.proto.clone(),
             scancode: button.scancode,
-            raw: raw.and_then(|r| serde_json::from_str(&r).ok()),
+            raw: raw.and_then(|r| serde_json::from_str::<Vec<u32>>(&r).ok()),
             carrier: Some(button.carrier),
         });
     }

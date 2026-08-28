@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::io::Read;
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -132,7 +133,7 @@ pub fn scan_rc_devices() -> Vec<(String, bool)> {
     let mut dirs: Vec<_> = entries.flatten().collect();
     dirs.sort_by_key(|d| d.file_name());
     for entry in dirs {
-        for lirc in std::fs::read_dir(entry.path()).into_iter().flatten() {
+        for lirc in std::fs::read_dir(entry.path()).into_iter().flatten().flatten() {
             let Ok(uevent) = std::fs::read_to_string(lirc.path().join("uevent")) else {
                 continue;
             };

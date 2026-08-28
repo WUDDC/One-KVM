@@ -134,13 +134,13 @@ impl Transmitter {
 
     /// Transmit a learned code.
     pub fn transmit(
-        &self,
+        &mut self,
         proto: &str,
         scancode: Option<i64>,
         raw: Option<&[u32]>,
         carrier: i64,
     ) -> Result<()> {
-        match &self.inner {
+        match &mut self.inner {
             TransmitterInner::Lirc { file, has_carrier } => {
                 let rc_proto = rx::proto_from_name(proto).ok_or_else(|| {
                     AppError::BadRequest(format!("unknown IR protocol '{proto}'"))
@@ -185,7 +185,7 @@ impl Transmitter {
                                 "button has neither raw data nor a scancode".to_string(),
                             )
                         })?;
-                        encoder::encode(proto, sc).ok_or_else(|| {
+                        encoder::encode(proto, sc as u64).ok_or_else(|| {
                             AppError::BadRequest(format!(
                                 "protocol '{proto}' needs a kernel transmitter (gpio-ir-tx); \
                                  the GPIO fallback only supports NEC"

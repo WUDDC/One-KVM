@@ -10,7 +10,7 @@
 mod encoder;
 mod led;
 mod rx;
-mod store;
+pub(crate) mod store;
 mod tx;
 
 pub use store::{IrButtonRecord, IrRemoteRecord};
@@ -45,7 +45,7 @@ pub struct IrHardwareStatus {
     pub learn_active: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct IrManager {
     config: IrConfig,
     db: crate::db::DatabasePool,
@@ -84,7 +84,7 @@ impl IrManager {
     }
 
     pub async fn start_learn(&self, remote_id: i64, button_name: String) -> Result<()> {
-        let _guard = self.learn_lock.clone().try_lock().map_err(|_| {
+        let _guard = self.learn_lock.try_lock().map_err(|_| {
             AppError::Conflict("another learn session is already running".to_string())
         })?;
 
@@ -112,12 +112,12 @@ impl IrManager {
 
         let manager = self.clone();
         let timeout = Duration::from_millis(self.config.learn_timeout_ms.max(1000));
+        info!("IR learn session started for remote {remote_id} ({button_name})");
         tokio::spawn(async move {
             let result = rx::capture(rx_device, cancelled, timeout).await;
             manager.finish_learn(remote_id, button_name, result).await;
         });
 
-        info!("IR learn session started for remote {remote_id} ({button_name})");
         self.led.set(LedPattern::blink(LedColor::GREEN));
         self.publish_learn("waiting", Some(remote_id), None, None, None, None);
         Ok(())
@@ -202,10 +202,9 @@ impl IrManager {
             .await?
             .ok_or_else(|| AppError::NotFound(format!("IR button {button_id} not found")))?;
 
-        let raw = button
-            .raw
-            .as_deref()
-            .map(serde_json::from_str::<Vec<u32>>)
+        let raw = store::get_button_raw(self.db.pool(), button_id)
+            .await?
+            .map(|s| serde_json::from_str::<Vec<u32>>(&s))
             .transpose()
             .map_err(|e| AppError::Internal(format!("corrupt raw IR data: {e}")))?;
 
@@ -214,9 +213,9 @@ impl IrManager {
         let config = self.config.clone();
         let proto = button.proto.clone();
         let scancode = button.scancode;
-        let carrier = self.config.carrier;
+        let carrier = i64::from(self.config.carrier);
         let result = tokio::task::spawn_blocking(move || {
-            let tx = tx::Transmitter::open(&config)?;
+            let mut tx = tx::Transmitter::open(&config)?;
             tx.transmit(&proto, scancode, raw.as_deref(), carrier)
         })
         .await
