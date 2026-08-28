@@ -153,7 +153,19 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-3 space-y-3" :style="{ opacity: pinned ? overlayOpacity / 100 : 1 }">
+  <div class="relative p-3 space-y-3" :style="{ opacity: pinned ? overlayOpacity / 100 : 1 }">
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class="absolute top-1.5 left-1.5 z-10"
+      :class="pinned && 'text-primary'"
+      :aria-label="pinned ? t('ir.unpin') : t('ir.pin')"
+      :title="pinned ? t('ir.unpin') : t('ir.pin')"
+      @click="pinned = !pinned"
+    >
+      <Pin v-if="!pinned" class="size-4" />
+      <PinOff v-else class="size-4" />
+    </Button>
     <Spinner v-if="loading" class="mx-auto my-4 size-5" />
 
     <template v-else>
@@ -166,7 +178,7 @@ onMounted(load)
       </div>
 
       <template v-else>
-        <div class="flex items-center justify-center gap-1.5 flex-wrap">
+        <div class="flex items-center justify-center gap-1.5 flex-wrap pl-9">
           <Button
             v-for="slot in 8"
             :key="slot"
@@ -224,17 +236,6 @@ onMounted(load)
             />
             <span class="text-xs text-muted-foreground shrink-0">s</span>
           </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            :class="pinned && 'text-primary'"
-            :aria-label="pinned ? t('ir.unpin') : t('ir.pin')"
-            :title="pinned ? t('ir.unpin') : t('ir.pin')"
-            @click="pinned = !pinned"
-          >
-            <Pin v-if="!pinned" class="size-4" />
-            <PinOff v-else class="size-4" />
-          </Button>
         </div>
 
         <div v-if="pinned" class="flex items-center gap-2">
