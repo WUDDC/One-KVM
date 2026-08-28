@@ -212,8 +212,9 @@ export default {
   },
   ir: {
     noRemotes: '暂无遥控',
-    prevRemote: '上一个遥控',
-    nextRemote: '下一个遥控',
+    prevButton: '上一个',
+    nextButton: '下一个',
+    autoCycle: '自动循环',
     noRemotesHint: '还没有可用的遥控，前往 设置 → 红外遥控 学习或导入。',
     noButtons: '该遥控暂无按键',
     unavailable: '未检测到红外收发硬件',

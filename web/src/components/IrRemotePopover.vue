@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Spinner } from '@/components/ui/spinner'
-import { Send, Settings2, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { Send, Radio, Settings2, ChevronLeft, ChevronRight, Play, Square } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { irApi, type IrRemote } from '@/api'
 
@@ -16,10 +16,15 @@ const selectedRemoteId = ref<number | null>(null)
 const loading = ref(true)
 const unavailable = ref(false)
 const sendingId = ref<number | null>(null)
+const activeIndex = ref(-1)
 
 const selectedRemote = computed(
   () => remotes.value.find((r) => r.id === selectedRemoteId.value) ?? null,
 )
+
+watch(selectedRemoteId, () => {
+  activeIndex.value = -1
+})
 
 async function load() {
   loading.value = true
@@ -55,31 +60,63 @@ async function send(buttonId: number) {
   }
 }
 
-function cycleRemote(dir: 1 | -1) {
-  if (remotes.value.length === 0) return
-  const index = remotes.value.findIndex((r) => r.id === selectedRemoteId.value)
-  const base = index === -1 ? 0 : index
-  const next = remotes.value[(base + dir + remotes.value.length) % remotes.value.length]
-  if (next) selectedRemoteId.value = next.id
+/// Move the active pointer through the current remote's buttons (wraps
+/// around) and fire the button it lands on.
+function cycleButton(dir: 1 | -1) {
+  const buttons = selectedRemote.value?.buttons ?? []
+  if (buttons.length === 0 || unavailable.value || sendingId.value !== null) return
+  const base = activeIndex.value === -1 ? (dir > 0 ? -1 : 0) : activeIndex.value
+  const next = buttons[(base + dir + buttons.length) % buttons.length]
+  if (!next) return
+  activeIndex.value = buttons.indexOf(next)
+  send(next.id)
 }
+
+// Auto-cycle: fire the next button every second until stopped.
+const AUTO_CYCLE_INTERVAL_MS = 1000
+const autoCycling = ref(false)
+let autoTimer: number | null = null
+
+function stopAutoCycle() {
+  autoCycling.value = false
+  if (autoTimer !== null) {
+    clearInterval(autoTimer)
+    autoTimer = null
+  }
+}
+
+function toggleAutoCycle() {
+  if (autoCycling.value) {
+    stopAutoCycle()
+    return
+  }
+  if (unavailable.value || (selectedRemote.value?.buttons.length ?? 0) === 0) return
+  autoCycling.value = true
+  cycleButton(1)
+  autoTimer = window.setInterval(() => {
+    if (unavailable.value || (selectedRemote.value?.buttons.length ?? 0) === 0) {
+      stopAutoCycle()
+      return
+    }
+    if (sendingId.value === null) cycleButton(1)
+  }, AUTO_CYCLE_INTERVAL_MS)
+}
+
+onUnmounted(stopAutoCycle)
+watch(unavailable, (value) => {
+  if (value) stopAutoCycle()
+})
 
 onMounted(load)
 </script>
 
 <template>
   <div class="p-3 space-y-3">
-    <div class="flex items-center gap-1">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        class="shrink-0"
-        :disabled="remotes.length < 2"
-        :aria-label="t('ir.prevRemote')"
-        @click="cycleRemote(-1)"
-      ><ChevronLeft class="size-4" /></Button>
+    <div class="flex items-center gap-2">
+      <Radio class="size-4 text-muted-foreground shrink-0" />
       <NativeSelect
         v-model="selectedRemoteId"
-        class="h-8 text-xs flex-1"
+        class="h-8 text-xs"
         :disabled="remotes.length === 0"
       >
         <option v-if="remotes.length === 0" :value="null" disabled>
@@ -89,14 +126,6 @@ onMounted(load)
           {{ remote.name }}
         </option>
       </NativeSelect>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        class="shrink-0"
-        :disabled="remotes.length < 2"
-        :aria-label="t('ir.nextRemote')"
-        @click="cycleRemote(1)"
-      ><ChevronRight class="size-4" /></Button>
     </div>
 
     <Spinner v-if="loading" class="mx-auto my-6 size-5" />
@@ -114,22 +143,56 @@ onMounted(load)
         {{ t('ir.noButtons') }}
       </div>
 
-      <div v-else-if="selectedRemote" class="grid grid-cols-3 gap-1.5">
-        <Button
-          v-for="button in selectedRemote.buttons"
-          :key="button.id"
-          variant="outline"
-          size="sm"
-          class="h-auto min-h-12 flex-col gap-0.5 px-1 py-1.5 text-xs"
-          :disabled="unavailable || sendingId !== null"
-          :title="unavailable ? t('ir.unavailable') : undefined"
-          @click="send(button.id)"
-        >
-          <Spinner v-if="sendingId === button.id" class="size-3.5" />
-          <Send v-else class="size-3.5 text-muted-foreground" />
-          <span class="w-full truncate leading-tight">{{ button.name }}</span>
-        </Button>
-      </div>
+      <template v-else-if="selectedRemote">
+        <div class="flex items-center justify-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            class="h-7 text-xs"
+            :disabled="unavailable || selectedRemote.buttons.length === 0 || sendingId !== null"
+            :aria-label="t('ir.prevButton')"
+            @click="cycleButton(-1)"
+          ><ChevronLeft class="size-3.5 mr-0.5" />{{ t('ir.prevButton') }}</Button>
+          <Button
+            :variant="autoCycling ? 'default' : 'outline'"
+            size="sm"
+            class="h-7 text-xs"
+            :disabled="unavailable || selectedRemote.buttons.length === 0"
+            :aria-label="t('ir.autoCycle')"
+            @click="toggleAutoCycle"
+          >
+            <Square v-if="autoCycling" class="size-3 mr-0.5" />
+            <Play v-else class="size-3 mr-0.5" />
+            {{ t('ir.autoCycle') }}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            class="h-7 text-xs"
+            :disabled="unavailable || selectedRemote.buttons.length === 0 || sendingId !== null"
+            :aria-label="t('ir.nextButton')"
+            @click="cycleButton(1)"
+          >{{ t('ir.nextButton') }}<ChevronRight class="size-3.5 ml-0.5" /></Button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-1.5">
+          <Button
+            v-for="(button, index) in selectedRemote.buttons"
+            :key="button.id"
+            variant="outline"
+            size="sm"
+            class="h-auto min-h-12 flex-col gap-0.5 px-1 py-1.5 text-xs"
+            :class="index === activeIndex && 'border-primary ring-1 ring-primary'"
+            :disabled="unavailable || sendingId !== null"
+            :title="unavailable ? t('ir.unavailable') : undefined"
+            @click="activeIndex = index; send(button.id)"
+          >
+            <Spinner v-if="sendingId === button.id" class="size-3.5" />
+            <Send v-else class="size-3.5 text-muted-foreground" />
+            <span class="w-full truncate leading-tight">{{ button.name }}</span>
+          </Button>
+        </div>
+      </template>
     </template>
 
     <Button
