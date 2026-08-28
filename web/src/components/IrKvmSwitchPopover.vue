@@ -4,12 +4,10 @@ import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
-import { ChevronLeft, ChevronRight, Play, Pause, Settings2, Pin, PinOff } from 'lucide-vue-next'
-import { useRouter } from 'vue-router'
+import { ChevronLeft, ChevronRight, Play, Pause, Pin, PinOff } from 'lucide-vue-next'
 import { irApi } from '@/api'
 
 const { t } = useI18n()
-const router = useRouter()
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -237,15 +235,5 @@ onMounted(load)
         </div>
       </template>
     </template>
-
-    <Button
-      variant="ghost"
-      size="sm"
-      class="w-full h-7 text-xs text-muted-foreground"
-      @click="router.push('/settings?tab=ir')"
-    >
-      <Settings2 class="size-3.5 mr-1" />
-      {{ t('ir.manageHint') }}
-    </Button>
   </div>
 </template>
